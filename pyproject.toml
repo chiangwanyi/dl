@@ -1,0 +1,14 @@
+[project]
+name = "dl"
+version = "0.1.0"
+description = "深度学习练习脚本集"
+readme = "README.md"
+authors = [
+    { name = "Chiangwanyi", email = "chiangwanyi@163.com" }
+]
+requires-python = ">=3.15"
+dependencies = [
+    "autograd>=1.9.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+]
