@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>RK4 弹簧小球｜多参数可调</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#111;color:#fff;font-family:system-ui}
+#canvas{display:block;touch-action:none}
+.info-panel{
+  position:fixed;
+  top:8px;
+  left:8px;
+  background:rgba(0,0,0,0.65);
+  padding:8px 12px;
+  border-radius:6px;
+  font-size:12px;
+  line-height:1.6;
+  min-width:180px;
+}
+#resetBtn{position:fixed;top:8px;right:8px;padding:6px 10px;background:#222;color:#fff;border:1px solid #666;border-radius:6px;font-size:12px}
+/* 控制面板 */
+.ctrl{
+  position:fixed;
+  bottom:24px;
+  left:16px;
+  right:16px;
+  background:rgba(20,20,20,0.75);
+  padding:12px 14px;
+  border-radius:10px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.ctrl-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.ctrl label{
+  font-size:13px;
+  white-space:nowrap;
+  min-width:90px;
+}
+input[type="range"]{
+  flex:1;
+  accent-color:#7cf;
+}
+.val-text{
+  min-width:58px;
+  font-size:13px;
+  text-align:right;
+}
+</style>
+</head>
+<body>
+<div class="info-panel" id="infoPanel"></div>
+<button id="resetBtn">重置</button>
+<div class="ctrl">
+  <div class="ctrl-row">
+    <label>弹簧硬度 k</label>
+    <input id="kSlider" type="range" min="2" max="20" step="0.2" value="7">
+    <span id="kVal" class="val-text">7.0</span>
+  </div>
+  <div class="ctrl-row">
+    <label>小球质量 m(kg)</label>
+    <input id="mSlider" type="range" min="0.2" max="3.0" step="0.1" value="1.0">
+    <span id="mVal" class="val-text">1.0 kg</span>
+  </div>
+  <div class="ctrl-row">
+    <label>阻尼 damp</label>
+    <input id="dampSlider" type="range" min="0" max="0.35" step="0.01" value="0.12">
+    <span id="dampVal" class="val-text">0.12</span>
+  </div>
+  <div class="ctrl-row">
+    <label>重力 g(m/s²)</label>
+    <input id="gSlider" type="range" min="0" max="20" step="0.2" value="9.8">
+    <span id="gVal" class="val-text">9.8</span>
+  </div>
+  <div class="ctrl-row">
+    <label>弹簧原长 L0(m)</label>
+    <input id="L0Slider" type="range" min="0.2" max="1.8" step="0.05" value="1.00">
+    <span id="L0Val" class="val-text">1.00 m</span>
+  </div>
+</div>
+<canvas id="canvas"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const resetBtn = document.getElementById('resetBtn');
+const kSlider = document.getElementById('kSlider');
+const kVal = document.getElementById('kVal');
+const mSlider = document.getElementById('mSlider');
+const mVal = document.getElementById('mVal');
+const dampSlider = document.getElementById('dampSlider');
+const dampVal = document.getElementById('dampVal');
+const gSlider = document.getElementById('gSlider');
+const gVal = document.getElementById('gVal');
+const L0Slider = document.getElementById('L0Slider');
+const L0Val = document.getElementById('L0Val');
+const infoPanel = document.getElementById('infoPanel');
+
+let state = { x: 0, y: 0, vx: 0, vy: 0 };
+let anchor = { x: 0, y: 0 };
+
+function resize(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  anchor.x = canvas.width / 2;
+  anchor.y = 80;
+}
+
+function resetSim(){
+  resize();
+  state.x = anchor.x;
+  state.y = anchor.y + 160;
+  state.vx = 0;
+  state.vy = 0;
+}
+resetBtn.onclick = resetSim;
+window.addEventListener('resize', resetSim);
+resetSim();
+
+// ========== 物理基础常量 ==========
+const scale = 0.01;   // 1px = 0.01 m
+let k = parseFloat(kSlider.value);
+let m = parseFloat(mSlider.value);
+let damp = parseFloat(dampSlider.value);
+let gReal = parseFloat(gSlider.value);
+let L0m = parseFloat(L0Slider.value); // 原长，单位m
+let L0px = L0m / scale; // 转换成像素给绘图计算
+
+// 滑块监听
+kSlider.addEventListener('input', ()=>{
+  k = parseFloat(kSlider.value);
+  kVal.textContent = k.toFixed(1);
+})
+mSlider.addEventListener('input', ()=>{
+  m = parseFloat(mSlider.value);
+  mVal.textContent = m.toFixed(1) + " kg";
+})
+dampSlider.addEventListener('input', ()=>{
+  damp = parseFloat(dampSlider.value);
+  dampVal.textContent = damp.toFixed(2);
+})
+gSlider.addEventListener('input', ()=>{
+  gReal = parseFloat(gSlider.value);
+  gVal.textContent = gReal.toFixed(1);
+})
+L0Slider.addEventListener('input', ()=>{
+  L0m = parseFloat(L0Slider.value);
+  L0px = L0m / scale;
+  L0Val.textContent = L0m.toFixed(2) + " m";
+})
+
+let dragging = false;
+let lastAcc = {ax:0, ay:0};
+
+// 微分方程
+function deriv(s){
+  const dx = s.x - anchor.x;
+  const dy = s.y - anchor.y;
+  const len = Math.hypot(dx, dy);
+  const ex = len === 0 ? 0 : dx / len;
+  const ey = len === 0 ? 0 : dy / len;
+
+  const springForce = -k * (len - L0px);
+  const fx = springForce * ex - damp * s.vx;
+  const fy = springForce * ey - damp * s.vy + m * (gReal / scale);
+
+  const ax = fx / m;
+  const ay = fy / m;
+  lastAcc.ax = ax;
+  lastAcc.ay = ay;
+
+  return {
+    x: s.vx,
+    y: s.vy,
+    vx: ax,
+    vy: ay
+  };
+}
+
+// RK4
+function rk4(s, dt){
+  const k1 = deriv(s);
+  const k2 = deriv({
+    x: s.x + k1.x * dt/2,
+    y: s.y + k1.y * dt/2,
+    vx: s.vx + k1.vx * dt/2,
+    vy: s.vy + k1.vy * dt/2
+  });
+  const k3 = deriv({
+    x: s.x + k2.x * dt/2,
+    y: s.y + k2.y * dt/2,
+    vx: s.vx + k2.vx * dt/2,
+    vy: s.vy + k2.vy * dt/2
+  });
+  const k4 = deriv({
+    x: s.x + k3.x * dt,
+    y: s.y + k3.y * dt,
+    vx: s.vx + k3.vx * dt,
+    vy: s.vy + k3.vy * dt
+  });
+  return {
+    x: s.x + dt/6 * (k1.x + 2*k2.x + 2*k3.x + k4.x),
+    y: s.y + dt/6 * (k1.y + 2*k2.y + 2*k3.y + k4.y),
+    vx: s.vx + dt/6 * (k1.vx + 2*k2.vx + 2*k3.vx + k4.vx),
+    vy: s.vy + dt/6 * (k1.vy + 2*k2.vy + 2*k3.vy + k4.vy)
+  };
+}
+
+// 绘制弹簧
+function drawSpring(x1,y1,x2,y2,seg=16){
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx,dy);
+  if(len < 0.1) return;
+  const nx = -dy/len;
+  const ny = dx/len;
+  for(let i=1;i<=seg;i++){
+    const t = i/seg;
+    const baseX = x1 + dx*t;
+    const baseY = y1 + dy*t;
+    const amp = (i%2===0)?8:-8;
+    ctx.lineTo(baseX + nx*amp, baseY + ny*amp);
+  }
+  ctx.lineTo(x2,y2);
+  ctx.strokeStyle="#7cf";
+  ctx.lineWidth=2;
+  ctx.stroke();
+}
+
+function draw(){
+  ctx.fillStyle="#111";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  // 固定锚点
+  ctx.beginPath();
+  ctx.arc(anchor.x,anchor.y,6,0,Math.PI*2);
+  ctx.fillStyle="#fa4";
+  ctx.fill();
+  drawSpring(anchor.x,anchor.y,state.x,state.y);
+  // 小球
+  ctx.beginPath();
+  ctx.arc(state.x,state.y,14,0,Math.PI*2);
+  ctx.fillStyle="#4f8";
+  ctx.fill();
+  ctx.strokeStyle="#fff";
+  ctx.lineWidth=2;
+  ctx.stroke();
+}
+
+function updateInfo(){
+  // 相对于悬挂点（anchor），单位 m
+  const rx = (state.x - anchor.x) * scale;
+  const ry = (state.y - anchor.y) * scale;
+  const springLenPx = Math.hypot(state.x - anchor.x, state.y - anchor.y);
+  const springLenM = springLenPx * scale;
+
+  // 速度 m/s
+  const vxM = state.vx * scale;
+  const vyM = state.vy * scale;
+  const speed = Math.hypot(vxM, vyM);
+
+  // 加速度 m/s²
+  const axM = lastAcc.ax * scale;
+  const ayM = lastAcc.ay * scale;
+  const accMag = Math.hypot(axM, ayM);
+
+  infoPanel.innerHTML =
+`速度：${speed.toFixed(2)} m/s<br>
+加速度：${accMag.toFixed(2)} m/s²<br>
+位置(x,y)：(${rx.toFixed(2)}, ${ry.toFixed(2)}) m<br>
+弹簧长度：${springLenM.toFixed(2)} m`;
+}
+
+let lastT = 0;
+const dtMax = 0.016;
+function loop(t){
+  requestAnimationFrame(loop);
+  const dt = Math.min((t-lastT)/1000, dtMax);
+  lastT = t;
+  if(!dragging){
+    state = rk4(state, dt);
+  }
+  updateInfo();
+  draw();
+}
+requestAnimationFrame(loop);
+
+// 触屏鼠标
+function getPos(e){
+  const touch = e.touches ? e.touches[0] : e;
+  return {x: touch.clientX, y: touch.clientY};
+}
+let dragStartPos = {x:0,y:0};
+let dragStartTime = 0;
+
+function down(e){
+  e.preventDefault();
+  const p = getPos(e);
+  const d = Math.hypot(p.x - state.x, p.y - state.y);
+  if(d < 22){
+    dragging = true;
+    dragStartPos = {...p};
+    dragStartTime = performance.now();
+  }
+}
+function move(e){
+  if(!dragging) return;
+  e.preventDefault();
+  const p = getPos(e);
+  state.x = p.x;
+  state.y = p.y;
+  state.vx = 0;
+  state.vy = 0;
+}
+function up(e){
+  if(!dragging) return;
+  dragging = false;
+  const p = getPos(e);
+  const dur = (performance.now() - dragStartTime)/1000;
+  if(dur > 0.001){
+    state.vx = (p.x - dragStartPos.x)/dur * 0.7;
+    state.vy = (p.y - dragStartPos.y)/dur * 0.7;
+  }
+}
+
+canvas.addEventListener('mousedown',down);
+canvas.addEventListener('mousemove',move);
+canvas.addEventListener('mouseup',up);
+canvas.addEventListener('mouseleave',up);
+canvas.addEventListener('touchstart',down, {passive:false});
+canvas.addEventListener('touchmove',move, {passive:false});
+canvas.addEventListener('touchend',up);
+canvas.addEventListener('touchcancel',up);
+</script>
+</body>
+</html>

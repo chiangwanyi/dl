@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>RK4 弹簧小球 · Vue3</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:#111;color:#fff;font-family:system-ui}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.panel{position:fixed;border-radius:8px;font-size:12px;line-height:1.6}
+.info{top:8px;left:8px;padding:8px 12px;min-width:190px;background:rgba(0,0,0,.65)}
+#reset{position:fixed;top:8px;right:8px;z-index:2;padding:6px 10px;background:#222;color:#fff;border:1px solid #666;border-radius:6px;font-size:12px}
+.ctrl{bottom:24px;left:16px;right:16px;padding:12px 14px;background:rgba(20,20,20,.78);display:flex;flex-direction:column;gap:10px;font-size:13px}
+.row{display:flex;align-items:center;gap:10px}
+.row label{white-space:nowrap;min-width:90px}
+input[type=range]{flex:1;height:18px;accent-color:#7cf}
+.val{min-width:58px;text-align:right}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas ref="cv" @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up"></canvas>
+
+  <div class="panel info">
+    <div v-for="[label, text] in readout" :key="label">{{ label }}：{{ text }}</div>
+  </div>
+
+  <button id="reset" @click="reset">重置</button>
+
+  <div class="panel ctrl">
+    <div class="row" v-for="p in params" :key="p.key">
+      <label>{{ p.label }}</label>
+      <input type="range" v-model.number="cfg[p.key]" :min="p.min" :max="p.max" :step="p.step">
+      <span class="val">{{ p.fmt(cfg[p.key]) }}</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+<script>window.Vue||document.write('<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"><\/script>');</script>
+<script>
+if(!window.Vue){
+  document.getElementById('app').textContent = 'Vue 加载失败：请检查网络，或把 vue.global.prod.js 放到同目录后改成本地引用。';
+  throw new Error('Vue not loaded');
+}
+const { createApp, reactive, ref, onMounted, onUnmounted } = Vue;
+
+// ===== 常量：1px = 0.01m，物理量统一换成像素世界计算 =====
+const SCALE = 0.01, DT_MAX = 0.016;
+const BALL_R = 14, HIT_R = 22, SPRING_AMP = 8, SPRING_SEG = 16;
+const FIELDS = ['x', 'y', 'vx', 'vy'];
+
+createApp({
+  setup() {
+    const cv = ref(null);
+    let ctx, W = 0, H = 0, raf = 0, lastT = 0;
+    let anchor = { x: 0, y: 0 };
+    let s = { x: 0, y: 0, vx: 0, vy: 0 };   // 位置(px) / 速度(px·s⁻¹)
+    let acc = { ax: 0, ay: 0 };
+    let drag = null;
+
+    // 所有可调参数 + 滑块描述（一份配置驱动整个面板）
+    const cfg = reactive({ k: 7, m: 1, damp: 0.12, g: 9.8, L0: 1 });
+    const params = [
+      { key: 'k',    label: '弹簧硬度 k',       min: 2,   max: 20,   step: 0.2,  fmt: v => v.toFixed(1) },
+      { key: 'm',    label: '小球质量 m(kg)',   min: 0.2, max: 3,    step: 0.1,  fmt: v => v.toFixed(1) + ' kg' },
+      { key: 'damp', label: '阻尼 damp',        min: 0,   max: 0.35, step: 0.01, fmt: v => v.toFixed(2) },
+      { key: 'g',    label: '重力 g(m/s²)',     min: 0,   max: 20,   step: 0.2,  fmt: v => v.toFixed(1) },
+      { key: 'L0',   label: '弹簧原长 L0(m)',   min: 0.2, max: 1.8,  step: 0.05, fmt: v => v.toFixed(2) + ' m' },
+    ];
+
+    const L0px = () => cfg.L0 / SCALE;
+
+    // ===== 微分方程：s' = f(s) =====
+    const deriv = (u) => {
+      const dx = u.x - anchor.x, dy = u.y - anchor.y;
+      const len = Math.hypot(dx, dy) || 1e-9;
+      const ex = dx / len, ey = dy / len;
+      const f = -cfg.k * (len - L0px());                       // 弹力(指向原点)
+      const ax = (f * ex - cfg.damp * u.vx) / cfg.m;
+      const ay = (f * ey - cfg.damp * u.vy) / cfg.m + cfg.g / SCALE;
+      acc = { ax, ay };
+      return { x: u.vx, y: u.vy, vx: ax, vy: ay };
+    };
+
+    // 通用向量步进 + RK4（四个分量同一套公式，省掉重复代码）
+    const step = (u, d, h) => Object.fromEntries(FIELDS.map(f => [f, u[f] + d[f] * h]));
+    const rk4 = (u, dt) => {
+      const k1 = deriv(u);
+      const k2 = deriv(step(u, k1, dt / 2));
+      const k3 = deriv(step(u, k2, dt / 2));
+      const k4 = deriv(step(u, k3, dt));
+      return Object.fromEntries(FIELDS.map(f => [f, u[f] + dt / 6 * (k1[f] + 2 * k2[f] + 2 * k3[f] + k4[f])]));
+    };
+
+    // ===== 绘制 =====
+    const dot = (x, y, r, fill, stroke) => {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fill; ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+    };
+
+    const drawSpring = () => {
+      const dx = s.x - anchor.x, dy = s.y - anchor.y, len = Math.hypot(dx, dy);
+      if (len < 0.1) return;
+      const nx = -dy / len * SPRING_AMP, ny = dx / len * SPRING_AMP;
+      ctx.beginPath(); ctx.moveTo(anchor.x, anchor.y);
+      for (let i = 1; i <= SPRING_SEG; i++) {
+        const t = i / SPRING_SEG, o = i % 2 ? -1 : 1;
+        ctx.lineTo(anchor.x + dx * t + nx * o, anchor.y + dy * t + ny * o);
+      }
+      ctx.lineTo(s.x, s.y);
+      ctx.strokeStyle = '#7cf'; ctx.lineWidth = 2; ctx.stroke();
+    };
+
+    const draw = () => {
+      ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H);
+      drawSpring();
+      dot(anchor.x, anchor.y, 6, '#fa4');
+      dot(s.x, s.y, BALL_R, '#4f8', '#fff');
+    };
+
+    // ===== 面板读数（每帧写入，模板负责渲染）=====
+    const readout = ref([]);
+    const updateReadout = () => {
+      const rx = (s.x - anchor.x) * SCALE, ry = (s.y - anchor.y) * SCALE;
+      const v = Math.hypot(s.vx, s.vy) * SCALE;
+      const a = Math.hypot(acc.ax, acc.ay) * SCALE;
+      readout.value = [
+        ['速度',      v.toFixed(2) + ' m/s'],
+        ['加速度',    a.toFixed(2) + ' m/s²'],
+        ['位置(x,y)', `(${rx.toFixed(2)}, ${ry.toFixed(2)}) m`],
+        ['弹簧长度',  (Math.hypot(rx, ry)).toFixed(2) + ' m'],
+      ];
+    };
+
+    // ===== 尺寸 / 重置 =====
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const c = cv.value;
+      W = window.innerWidth; H = window.innerHeight;
+      c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);        // 后续一律用 CSS 像素坐标
+      anchor = { x: W / 2, y: 80 };
+    };
+    const reset = () => {
+      resize();
+      s = { x: anchor.x, y: anchor.y + 160, vx: 0, vy: 0 };
+    };
+
+    // ===== 指针拖拽（Pointer Events 同时兼容鼠标 / 触屏 / 触控笔）=====
+    const down = (e) => {
+      if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > HIT_R) return;
+      e.target.setPointerCapture(e.pointerId);
+      drag = { x: e.clientX, y: e.clientY, t: performance.now() };
+      cv.value.style.cursor = 'grabbing';
+    };
+    const move = (e) => {
+      if (!drag) return;
+      s.x = e.clientX; s.y = e.clientY; s.vx = s.vy = 0;   // 拖动时冻结物理
+    };
+    const up = (e) => {
+      if (!drag) return;
+      const dur = (performance.now() - drag.t) / 1000;
+      if (dur > 1e-3) {                                    // 松手速度 → 初速度
+        s.vx = (e.clientX - drag.x) / dur * 0.7;
+        s.vy = (e.clientY - drag.y) / dur * 0.7;
+      }
+      drag = null; cv.value.style.cursor = 'grab';
+    };
+
+    // ===== 主循环 =====
+    const loop = (t) => {
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min((t - lastT) / 1000, DT_MAX);
+      lastT = t;
+      if (!drag) s = rk4(s, dt);
+      updateReadout();
+      draw();
+    };
+
+    onMounted(() => {
+      ctx = cv.value.getContext('2d');
+      reset();
+      addEventListener('resize', reset);
+      raf = requestAnimationFrame(loop);
+    });
+    onUnmounted(() => { cancelAnimationFrame(raf); removeEventListener('resize', reset); });
+
+    return { cv, cfg, params, readout, reset, down, move, up };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
