@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>022 · 猜位置 vs 猜力</title>
+<style>
+  :root {
+    --ink: #2c2c2a;
+    --ink-2: #5f5e5a;
+    --ink-3: #888780;
+    --line: #e6e4dd;
+    --bg: #faf9f6;
+    --card: #ffffff;
+    --blue: #185fa5;
+    --coral: #d85a30;
+    --gray: #888780;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 20px 48px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.2px; }
+  .sub { color: var(--ink-2); margin: 0 0 22px; font-size: 13.5px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) auto;
+    gap: 18px;
+    align-items: end;
+    margin-bottom: 14px;
+  }
+  .ctl label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+  .ctl label b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: #185fa5; margin: 0; }
+  button {
+    font: inherit;
+    font-size: 13.5px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    height: 38px;
+  }
+  button:hover { border-color: #c9c6bc; }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  canvas { display: block; width: 100%; height: 430px; border-radius: 10px; }
+  .legend {
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 22px; height: 0; border-top-width: 2px; border-top-style: solid; display: inline-block; }
+  .sw.b { border-color: var(--blue); }
+  .sw.c { border-color: var(--coral); border-top-style: dashed; }
+  .sw.g { border-color: var(--gray); border-top-style: dotted; }
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .rd { border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px; }
+  .rd .k { font-size: 12px; color: var(--ink-3); }
+  .rd .v { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .rd .e { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .rd.b .v { color: var(--blue); }
+  .rd.c .v { color: var(--coral); }
+  .rd.g .v { color: var(--gray); }
+  .why { margin-top: 22px; }
+  .why h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
+  .why p { margin: 0 0 8px; color: var(--ink-2); font-size: 13.5px; }
+  .why ul { margin: 0; padding-left: 20px; color: var(--ink-2); font-size: 13.5px; }
+  .why li { margin-bottom: 5px; }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12.5px;
+    background: #f1efe8;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>同一个物理题，两种问法</h1>
+  <p class="sub">
+    蓝线是真的抛体运动（数值积分）。橙虚线是学会「猜力」的网络自己滚出来的。
+    灰点线是 021 那种「猜位置」的网络——它只认识训练时那一条弹道。
+    现在三条几乎重合（因为默认参数正好是它训练时的那条）；
+    <b>把初速度拖小一点，灰线就会原地不动，而橙线仍然跟着蓝线走。</b>
+  </p>
+
+  <div class="card">
+    <div class="controls">
+      <div class="ctl">
+        <label>初速度 v₀ <b id="v0v"></b> m/s</label>
+        <input type="range" id="v0" step="1">
+      </div>
+      <div class="ctl">
+        <label>发射角 <b id="angv"></b>°</label>
+        <input type="range" id="ang" step="1">
+      </div>
+      <div class="ctl">
+        <label>阻力系数 k <b id="kv"></b></label>
+        <input type="range" id="k" step="0.005">
+      </div>
+      <button class="primary" id="fire">重新发射</button>
+    </div>
+
+    <canvas id="cv"></canvas>
+
+    <div class="legend">
+      <span><i class="sw b"></i>真实物理</span>
+      <span><i class="sw c"></i>022 场模型（猜力）</span>
+      <span><i class="sw g"></i>021 位置模型（猜位置）</span>
+    </div>
+
+    <div class="readout">
+      <div class="rd b"><div class="k">真实射程</div><div class="v" id="rTrue">—</div><div class="e">&nbsp;</div></div>
+      <div class="rd c"><div class="k">场模型射程</div><div class="v" id="rField">—</div><div class="e" id="eField">&nbsp;</div></div>
+      <div class="rd g"><div class="k">位置模型射程</div><div class="v" id="rPos">—</div><div class="e" id="ePos">&nbsp;</div></div>
+    </div>
+  </div>
+
+  <div class="why">
+    <h2>为什么灰线会这样</h2>
+    <ul>
+      <li>021 的网络输入是 <code>t</code>，输出是 <code>(x, y)</code>。它训练时只见过来自 vx=20, vy=30 的数据，
+          等于把某一条弹道背了下来。换初速度，它无从查起。</li>
+      <li>022 的网络输入是 <code>(vx, vy, k)</code>，输出是 <code>(ax, ay)</code>——也就是加速度。
+          它回答的是「此刻速度是这样、阻力这么大，受到的力是多少」，跟你从哪里发射、飞了多久都没关系。</li>
+      <li>位置由网页里的 RK4 积分器一步步推出来。所以换参数、中途施力，场模型都不需要重训。</li>
+    </ul>
+  </div>
+
+</div>
+
+<script src="022_model.js"></script>
+<script>
+(function () {
+  const MODEL = window.PROJECTILE_MODEL;
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+
+  const G = MODEL.g;
+  const H = MODEL.dt;                     // 积分步长
+  const R = MODEL.ranges;
+
+  let W = 0, HT = 0, scale = 8, ox = 30, oy = 400;
+  let tShow = Infinity, playing = false, lastTs = 0, rafId = 0;
+  let pathTrue = [], pathField = [], pathPos = [], maxT = 1;
+
+  // ---------------------------------------------------------------- 前向
+  function forward(model, x) {
+    const n = model.norm;
+    let a = new Array(x.length);
+    for (let i = 0; i < x.length; i++) a[i] = (x[i] - n.xm[i]) / n.xs[i];
+    const L = model.layers;
+    for (let li = 0; li < L.length; li++) {
+      const l = L[li];
+      const out = new Array(l.out);
+      for (let j = 0; j < l.out; j++) {
+        let s = l.b[j];
+        for (let k = 0; k < l.in; k++) s += a[k] * l.W[k][j];
+        out[j] = (li < L.length - 1) ? Math.tanh(s) : s;
+      }
+      a = out;
+    }
+    const y = new Array(a.length);
+    for (let i = 0; i < a.length; i++) y[i] = a[i] * n.ys[i] + n.ym[i];
+    return y;
+  }
+
+  const accelTrue = (vx, vy, k) => {
+    const s = Math.hypot(vx, vy);
+    return [-k * s * vx, -k * s * vy - G];
+  };
+  const accelField = (vx, vy, k) => forward(MODEL.field_model, [vx, vy, k]);
+
+  // ---------------------------------------------------------------- 积分
+  function rk4(s, accel, k, h) {
+    const f = q => { const a = accel(q[2], q[3], k); return [q[2], q[3], a[0], a[1]]; };
+    const k1 = f(s);
+    const k2 = f([s[0] + h / 2 * k1[0], s[1] + h / 2 * k1[1], s[2] + h / 2 * k1[2], s[3] + h / 2 * k1[3]]);
+    const k3 = f([s[0] + h / 2 * k2[0], s[1] + h / 2 * k2[1], s[2] + h / 2 * k2[2], s[3] + h / 2 * k2[3]]);
+    const k4 = f([s[0] + h * k3[0], s[1] + h * k3[1], s[2] + h * k3[2], s[3] + h * k3[3]]);
+    return s.map((v, i) => v + h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));
+  }
+
+  function simulate(accel, v0, angDeg, k, tmax) {
+    const rad = angDeg * Math.PI / 180;
+    let s = [0, 0, v0 * Math.cos(rad), v0 * Math.sin(rad)];
+    const path = [{ t: 0, x: 0, y: 0 }];
+    for (let i = 0, t = 0; t < tmax && i < 6000; i++) {
+      s = rk4(s, accel, k, H);
+      t += H;
+      path.push({ t, x: s[0], y: s[1] });
+      if (s[1] < 0 && i > 2) break;
+    }
+    return path;
+  }
+
+  function positionPath(tmax, step) {
+    const path = [];
+    for (let t = 0; t <= tmax + 1e-9; t += step) {
+      const p = forward(MODEL.position_model, [t]);
+      if (!isFinite(p[0]) || !isFinite(p[1])) break;
+      path.push({ t, x: p[0], y: p[1] });
+      if (p[1] < 0) break;
+    }
+    return path;
+  }
+
+  // ---------------------------------------------------------------- 坐标
+  const WORLD_X = 142, WORLD_Y = 63;
+
+  function toPx(x, y) {
+    return [ox + x * scale, oy - y * scale];
+  }
+
+  function layout() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = cv.getBoundingClientRect();
+    W = rect.width; HT = rect.height;
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(HT * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scale = Math.min(W / WORLD_X, (HT - 34) / WORLD_Y);
+    ox = 26;
+    oy = HT - 30;
+  }
+
+  // ---------------------------------------------------------------- 绘制
+  function drawGrid() {
+    ctx.save();
+    ctx.strokeStyle = '#eeede7';
+    ctx.lineWidth = 1;
+    const step = 20;
+    ctx.beginPath();
+    for (let x = 0; x <= WORLD_X; x += step) {
+      const [px] = toPx(x, 0);
+      if (px > W) break;
+      ctx.moveTo(px, 0); ctx.lineTo(px, oy);
+    }
+    for (let y = 0; y <= WORLD_Y; y += step) {
+      const [, py] = toPx(0, y);
+      if (py < 0) break;
+      ctx.moveTo(ox, py); ctx.lineTo(W, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGround() {
+    const y = oy;
+    ctx.save();
+    ctx.strokeStyle = '#c9c6bc';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+
+    // 发射点
+    ctx.fillStyle = '#2c2c2a';
+    ctx.beginPath();
+    ctx.moveTo(ox, y);
+    ctx.lineTo(ox + 10, y);
+    ctx.lineTo(ox, y - 13);
+    ctx.closePath();
+    ctx.fill();
+
+    // 刻度
+    ctx.fillStyle = '#b4b2a9';
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    for (let x = 20; x <= WORLD_X; x += 20) {
+      const [px] = toPx(x, 0);
+      if (px > W - 10) break;
+      ctx.fillText(x + 'm', px, y + 15);
+    }
+    ctx.restore();
+  }
+
+  function clipPath(path, tShow) {
+    if (!isFinite(tShow) || path.length < 2) return path;
+    if (tShow >= path[path.length - 1].t) return path;
+    let lo = 0, hi = path.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (path[mid].t <= tShow) lo = mid + 1; else hi = mid;
+    }
+    return path.slice(0, lo);
+  }
+
+  function strokePath(path, color, width, dash) {
+    if (path.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineJoin = 'round';
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const [px, py] = toPx(path[i].x, path[i].y);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function ballAt(path, t) {
+    if (!path.length) return null;
+    if (t > path[path.length - 1].t) return null;
+    let lo = 0, hi = path.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (path[mid].t < t) lo = mid + 1; else hi = mid;
+    }
+    return path[lo];
+  }
+
+  function dot(p, color) {
+    if (!p) return;
+    const [px, py] = toPx(p.x, p.y);
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, HT);
+    ctx.fillStyle = '#fdfdfb';
+    ctx.fillRect(0, 0, W, HT);
+
+    drawGrid();
+    drawGround();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, oy + 1);
+    ctx.clip();
+
+    const clip = p => clipPath(p, tShow);
+    strokePath(clip(pathPos), '#b4b2a9', 1.5, [2, 4]);
+    strokePath(clip(pathTrue), '#185fa5', 2.2, []);
+    strokePath(clip(pathField), '#d85a30', 1.8, [7, 5]);
+
+    if (isFinite(tShow)) {
+      const a = ballAt(pathPos, tShow);
+      const b = ballAt(pathField, tShow);
+      const c = ballAt(pathTrue, tShow);
+      dot(a, '#b4b2a9');
+      dot(b, '#d85a30');
+      dot(c, '#185fa5');
+    }
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- 状态
+  function fmt(v) { return v.toFixed(1); }
+
+  function rangeOf(path) {
+    if (!path.length) return NaN;
+    return path[path.length - 1].x;
+  }
+
+  function rebuild(animate) {
+    const v0 = +$('v0').value;
+    const ang = +$('ang').value;
+    const k = +$('k').value;
+
+    pathTrue = simulate(accelTrue, v0, ang, k, 30);
+    pathField = simulate(accelField, v0, ang, k, 30);
+
+    const tEnd = pathTrue[pathTrue.length - 1].t;
+    // 位置模型固定在 8 秒内画完：它只认 t，跟滑块完全无关，所以长度也不该变。
+    pathPos = positionPath(8.0, 0.02);
+
+    const rT = rangeOf(pathTrue);
+    const rF = rangeOf(pathField);
+    const rP = rangeOf(pathPos);
+
+    $('rTrue').textContent = fmt(rT) + ' m';
+    $('rField').textContent = fmt(rF) + ' m';
+    $('rPos').textContent = fmt(rP) + ' m';
+    $('eField').textContent = '误差 ' + fmt(rF - rT) + ' m  (' + (100 * (rF - rT) / rT).toFixed(1) + '%)';
+    $('ePos').textContent = '误差 ' + fmt(rP - rT) + ' m  (' + (100 * (rP - rT) / rT).toFixed(1) + '%)';
+
+    maxT = Math.max(tEnd, 0.6);
+    playing = false;
+    lastTs = 0;
+    if (animate) {
+      tShow = 0;
+      playing = true;
+      lastTs = 0;
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(tick);
+    } else {
+      tShow = Infinity;
+      draw();
+    }
+  }
+
+  function tick(ts) {
+    if (!playing) return;
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min((ts - lastTs) / 1000, 0.05);
+    lastTs = ts;
+    tShow += dt * 0.85;
+    if (tShow >= maxT) { tShow = Infinity; playing = false; }
+    draw();
+    if (playing) rafId = requestAnimationFrame(tick);
+  }
+
+  // ---------------------------------------------------------------- 初始化
+  function initSlider(id, labelId, min, max, step, val, digits) {
+    const el = $(id);
+    el.min = min; el.max = max; el.step = step; el.value = val;
+    const show = () => { $(labelId).textContent = (+el.value).toFixed(digits); };
+    el.addEventListener('input', () => { show(); rebuild(false); });
+    show();
+  }
+
+  layout();
+  const qs = new URLSearchParams(location.search);
+  const pick = (key, def) => qs.has(key) ? +qs.get(key) : def;
+
+  initSlider('v0', 'v0v', R.v0[0], R.v0[1], 1, pick('v0', Math.round(R.v0[1])), 0);
+  initSlider('ang', 'angv', R.deg[0], R.deg[1], 1, pick('ang', 56), 0);
+  initSlider('k', 'kv', R.k[0], R.k[1], 0.005, pick('k', 0), 3);
+
+  $('fire').addEventListener('click', () => rebuild(true));
+  window.addEventListener('resize', () => { layout(); draw(); });
+
+  rebuild(false);
+})();
+</script>
+</body>
+</html>
