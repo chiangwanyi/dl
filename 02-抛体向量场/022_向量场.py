@@ -3,7 +3,7 @@
 021 学会的是：给一个时间 t，猜出那一刻的 (x, y)。
 这个网络只认识"vx=20, vy=30 那一条弹道"，初速度一换它就完全不知道该怎么办。
 
-要让它像 spring_dl 那样能跑网页仿真、能随时拖滑块换参数，得换一个问题来问：
+要让它像 03-弹簧振子 那样能跑网页仿真、能随时拖滑块换参数，得换一个问题来问：
 
     021:   t            ->  (x, y)      猜位置（背诵一条轨迹）
     022:   (vx, vy, k)  ->  (ax, ay)    猜力（学一个向量场）
@@ -12,7 +12,7 @@
 自己就能画出整条弹道。换初速度、换阻力、中途加一阵风，都无所谓——
 网络只回答一个问题：此刻速度是这样、阻力系数是这么多，加速度该是多少。
 
-本文件训练两个网络，都导出给 022（向量场）.html 用：
+本文件训练两个网络，都导出给同目录的 022_向量场.html 用：
 
     位置模型 position_model :  1 -> 16 -> 2     输入 t，输出 (x, y)       ← 021 原版
     场模型   field_model    :  3 -> 32 -> 2     输入 (vx, vy, k)，输出 (ax, ay)
@@ -23,14 +23,18 @@
 打开网页能直接看到差别：拖一下初速度滑块，
 位置模型的灰线立刻飞掉，场模型的橙线纹丝不动。
 
-运行：  python "022（向量场）.py"        （约 3 分钟）
+运行：  python 022_向量场.py        （约 3 分钟）
 """
 
 import json
+import os
 import time
 
 import autograd.numpy as np
 from autograd import grad
+
+# 权重与 HTML 放在同一目录：网页用相对路径 <script src="022_model.js"> 加载
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 np.random.seed(42)
 
@@ -110,7 +114,7 @@ def build_field_dataset(n_traj=600, n_keep=8000):
     """从一批随机弹道上采集 (vx, vy, k) -> (ax, ay) 的监督对。
 
     注意输入里没有 x 和 y：抛体的加速度只取决于速度和阻力，跟位置无关。
-    （弹簧不一样，弹簧有回复力 -(L-1)，所以 spring_dl 必须把位置喂给网络。）
+    （弹簧不一样，弹簧有回复力 -(L-1)，所以 03-弹簧振子 的模型必须把位置喂给网络。）
     """
     v0 = V0_RANGE[0] + (V0_RANGE[1] - V0_RANGE[0]) * np.random.rand(n_traj)
     deg = DEG_RANGE[0] + (DEG_RANGE[1] - DEG_RANGE[0]) * np.random.rand(n_traj)
@@ -216,7 +220,7 @@ def rollout(accel_fn, v0, ang, k, steps=STEPS, h=DT):
     """只给初始条件，一步步预测加速度、RK4 积分，滚出整条弹道。
 
     注意这里没有任何"位置标签"可用——网络从第一步起就得靠自己。
-    这就是 spring_dl 里那个词的含义：自回归（autoregressive）rollout。
+    这就是 03-弹簧振子 里那个词的含义：自回归（autoregressive）rollout。
     """
     X, Y = 0.0, 0.0
     VX, VY = v0 * np.cos(ang), v0 * np.sin(ang)
@@ -324,11 +328,11 @@ def main():
         "position_model_trained_on": {"vx": 20.0, "vy": 30.0, "k": 0.0},
     }
 
-    with open("022_model.json", "w", encoding="utf-8") as f:
+    with open(os.path.join(OUT_DIR, "022_model.json"), "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False)
 
-    with open("022_model.js", "w", encoding="utf-8") as f:
-        f.write("/* 由 022（向量场）.py 自动生成，勿手改 */\n")
+    with open(os.path.join(OUT_DIR, "022_model.js"), "w", encoding="utf-8") as f:
+        f.write("/* 由 022_向量场.py 自动生成，勿手改 */\n")
         f.write("window.PROJECTILE_MODEL = ")
         json.dump(doc, f, ensure_ascii=False)
         f.write(";\n")

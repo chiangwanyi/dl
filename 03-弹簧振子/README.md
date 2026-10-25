@@ -11,13 +11,23 @@
 
 | 文件 | 说明 |
 |---|---|
-| `弹簧小球-轨迹预测.html` | 演示页面：原仿真 + 预测虚线叠加 + 误差读数 |
-| `spring_model.json` | 模型权重（122 KB），通用格式，任何语言都能读 |
-| `spring_model.js` | 同一份权重的 JS 包装，`window.SPRING_MODEL = {...}`，供 `file://` 直接打开 |
-| `spring_dl/sim.py` | 仿真器：像素版（与 HTML 逐位对齐）+ SI 版（批量生成）+ 无量纲变换 |
-| `spring_dl/dataset.py` | 拉丁超立方采样、拒绝采样、特征构造 |
-| `spring_dl/model.py` | numpy 手写反向传播的 MLP + Adam（不依赖 torch） |
-| `spring_dl/train.py` | 训练、评估、导出 |
+| `web/弹簧小球-轨迹预测.html` | 演示页面：原仿真 + 预测虚线叠加 + 误差读数 |
+| `web/spring_model.json` | 模型权重（122 KB），通用格式，任何语言都能读 |
+| `web/spring_model.js` | 同一份权重的 JS 包装，`window.SPRING_MODEL = {...}`，供 `file://` 直接打开 |
+| `src/sim.py` | 仿真器：像素版（与 HTML 逐位对齐）+ SI 版（批量生成）+ 无量纲变换 |
+| `src/dataset.py` | 拉丁超立方采样、拒绝采样、特征构造 |
+| `src/model.py` | numpy 手写反向传播的 MLP + Adam（不依赖 torch） |
+| `src/train.py` | 训练、评估、导出 |
+
+`web/` 下另外三个页面是本项目的前身，按复杂度递进，留作对照：
+
+| 文件 | 说明 |
+|---|---|
+| `web/弹簧小球.html` | RK4 弹簧振子，多参数可调（无 Vue，单文件） |
+| `web/弹簧小球-vue3.html` | 同上，用 Vue3 重写状态与滑块 |
+| `web/弹簧小球-vue3-物理增强版.html` | 加上空气阻力与地面碰撞，本文的仿真内核即来源于它 |
+
+注：权重文件必须与 HTML 同目录，页面用相对路径 `<script src="spring_model.js">` 加载。
 
 ---
 
@@ -249,9 +259,11 @@ ctx.restore();
 ## 7. 复现
 
 ```bash
-python spring_dl/train.py            # 生成数据 + 训练 + 评估 + 导出，约 3 分钟
-python spring_dl/train.py --reuse    # 复用 spring_dl/data_cache.npz
+python src/train.py            # 生成数据 + 训练 + 评估 + 导出，约 3 分钟
+python src/train.py --reuse    # 复用 .cache/data_cache.npz（约 22 MB，已 gitignore）
 ```
+
+命令在 `03-弹簧振子/` 目录下执行；权重会写到 `web/`，与 HTML 同目录。
 
 依赖只有 numpy。改结构改 `train.py` 顶部的 `HIDDEN / STEPS / LR`；
 改采样范围改 `dataset.py` 顶部的 `ZETA_RANGE / GAMMA_RANGE / TAU_END`。

@@ -1,8 +1,8 @@
 """训练 + 评估 + 导出权重。
 
 用法：
-    python train.py            # 生成数据并训练（约 4 分钟）
-    python train.py --reuse    # 复用 data_cache.npz
+    python src/train.py            # 生成数据并训练（约 4 分钟）
+    python src/train.py --reuse    # 复用 .cache/data_cache.npz
 """
 
 import json
@@ -17,8 +17,10 @@ from dataset import (DTAU, FEATURE_NAMES, N_STEPS, TAU_END, ZETA_RANGE, GAMMA_RA
 from model import MLP, Adam
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.dirname(HERE)          # 权重写到工作区根目录，和 HTML 放一起
-CACHE = os.path.join(HERE, "data_cache.npz")
+ROOT = os.path.dirname(HERE)                      # 03-弹簧振子/
+OUT_DIR = os.path.join(ROOT, "web")               # 权重写到 web/，和 HTML 放一起
+CACHE_DIR = os.path.join(ROOT, ".cache")          # 训练中间产物，已 gitignore
+CACHE = os.path.join(CACHE_DIR, "data_cache.npz")
 
 HIDDEN = [96, 96]
 N_TRAJ = 1500
@@ -37,6 +39,7 @@ def load_data(reuse=False):
         return z["states"], z["zeta"], z["gamma"]
     t0 = time.time()
     states, zeta, gamma = generate(N_TRAJ, seed=SEED)
+    os.makedirs(CACHE_DIR, exist_ok=True)
     np.savez_compressed(CACHE, states=states, zeta=zeta, gamma=gamma)
     print(f"  用时 {time.time() - t0:.1f}s，shape={states.shape}")
     return states, zeta, gamma
@@ -240,7 +243,7 @@ def export(net, norm, metrics):
     with open(pj, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False)
     with open(pjs, "w", encoding="utf-8") as f:
-        f.write("/* 由 spring_dl/train.py 自动生成，勿手改。格式见 README-轨迹预测.md */\n")
+        f.write("/* 由 src/train.py 自动生成，勿手改。格式见 ../README.md */\n")
         f.write("window.SPRING_MODEL = ")
         json.dump(doc, f, ensure_ascii=False)
         f.write(";\n")
