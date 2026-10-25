@@ -170,6 +170,8 @@ def train_network(X, Y, n_hidden, lr, epochs, seed=1, tag="", optimizer="gd"):
     """
     rng = np.random.default_rng(seed)
 
+    # P = [W1, b1, W2, b2]，形状分别是 (3, n_hidden), (1, n_hidden), (n_hidden, 2), (1, 2)
+    # standard_normal 生成标准正态分布，乘 0.5 是为了让初始权重不要太大，避免 tanh 饱和。
     P = [rng.standard_normal((X.shape[1], n_hidden)) * 0.5,
          np.zeros((1, n_hidden)),
          rng.standard_normal((n_hidden, Y.shape[1])) * 0.5,
@@ -191,6 +193,7 @@ def train_network(X, Y, n_hidden, lr, epochs, seed=1, tag="", optimizer="gd"):
     for epoch in range(1, epochs + 1):
         gs = grads(*P)
         for i in range(4):
+            # 带有梯度记忆和自适应步幅的梯度下降算法
             if optimizer == "adam":
                 m[i] = 0.9 * m[i] + 0.1 * gs[i]
                 v[i] = 0.999 * v[i] + 0.001 * gs[i] ** 2
@@ -288,6 +291,8 @@ def main():
 
     print("\n[1/5] 生成场模型的训练数据")
     Xf, Yf = build_field_dataset()
+
+    # Xf 形状 (8000, 3)，Yf 形状 (8000, 2)
 
     xm, xs = Xf.mean(0), Xf.std(0) + 1e-9
     ym, ys = Yf.mean(0), Yf.std(0) + 1e-9
