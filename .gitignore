@@ -9,4 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# 训练中间产物（可由脚本重新生成）
+.cache/
+data_cache.npz
+
 .workbuddy
