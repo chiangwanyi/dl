@@ -1,4 +1,6 @@
+import json
 import time
+from pathlib import Path
 
 import autograd.numpy as np
 from autograd import grad
@@ -6,6 +8,10 @@ from autograd import grad
 from mnist_loader import load_mnist
 
 np.random.seed(42)
+
+HERE = Path(__file__).resolve().parent
+MODEL_PATH = HERE / "model.json"
+WEB_MODEL_PATH = HERE / "web" / "model.js"
 
 
 def softmax(z):
@@ -99,6 +105,50 @@ def one_hot(y, num_classes=10):
     return Y
 
 
+def export_model(P, path=MODEL_PATH, web_path=WEB_MODEL_PATH, decimals=6):
+    """把训练好的参数导出成 JSON，同时给网页版写一份 model.js。
+
+    JSON 结构：
+        {"arch": [784, 32, 10], "activation": "tanh", "output": "softmax",
+         "W1": [[...32 个], ... 784 行], "b1": [32], "W2": [[...10 个], ...32 行], "b2": [10]}
+
+    注意用 .tolist() 转成嵌套列表，并把 float32/float64 四舍五入到 decimals 位，
+    否则 JSON 里会出现 "0.12345678901234567" 这种又长又没必要的高精度，文件会大一倍多。
+    """
+    W1, b1, W2, b2 = P
+
+    model = {
+        "arch": [int(W1.shape[0]), int(W1.shape[1]), int(W2.shape[1])],
+        "activation": "tanh",
+        "output": "softmax",
+        "input": "28x28 grayscale, /255, white digit on black",
+        "W1": np.round(W1, decimals).tolist(),
+        "b1": np.round(b1, decimals).tolist()[0],
+        "W2": np.round(W2, decimals).tolist(),
+        "b2": np.round(b2, decimals).tolist()[0],
+    }
+
+    text = json.dumps(model, separators=(",", ":"))
+
+    Path(path).write_text(text, encoding="utf-8")
+    web_path = Path(web_path)
+    web_path.parent.mkdir(parents=True, exist_ok=True)
+    web_path.write_text(f"window.MNIST_MODEL = {text};\n", encoding="utf-8")
+
+    print(f"\n模型已导出：{path}（{len(text) / 1024:.0f} KB）")
+    print(f"网页数据：{web_path}")
+    print(f"结构 {model['arch']}，激活 {model['activation']}，输出 {model['output']}")
+    return path
+
+
+def load_model(path=MODEL_PATH):
+    """把导出的 JSON 读回成参数列表 P，可以继续用 predict() 推理。"""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    P = [np.array(raw["W1"]), np.array([raw["b1"]]),
+         np.array(raw["W2"]), np.array([raw["b2"]])]
+    return P
+
+
 def main():
     X_train, y_train, X_test, y_test = load_mnist()
 
@@ -121,6 +171,8 @@ def main():
     mlp = train_network(X_train, Y_train, n_hidden=256, lr=0.001, epochs=10,
                         batch_size=128, seed=42, tag="MLP",
                         optimizer="adam", loss="ce")
+
+    export_model(mlp)
 
     # ================== 测试 ==================
     logits = predict(X_test, mlp)
