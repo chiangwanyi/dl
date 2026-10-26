@@ -49,6 +49,18 @@ def train_network(X, Y, n_hidden, lr, epochs, seed=1, tag="", optimizer="gd"):
 
     return P
 
+def one_hot(y, num_classes=10):
+    """把数字标签 (N,) 转成独热编码 (N, num_classes)。
+
+    y = [5, 0, 9]  ->  [[0,0,0,0,0,1,0,0,0,0],
+                        [1,0,0,0,0,0,0,0,0,0],
+                        [0,0,0,0,0,0,0,0,0,1]]
+    """
+    Y = np.zeros((y.shape[0], num_classes))
+    Y[np.arange(y.shape[0]), y] = 1.0
+    return Y
+
+
 def main():
     X_train, y_train, X_test, y_test = load_mnist()
 
@@ -59,16 +71,19 @@ def main():
     print("测试标签 y_test：", y_test.shape)
 
     # X_train(60000, 28, 28) -> (60000, 784)
-    # y_train(60000,) -> (60000, 10)
+    # y_train(60000,) -> (60000, 10) 独热编码
 
-    X_train = X_train.reshape(X_train.shape[0], -1)
-    Y_train = np.zeros((y_train.shape[0], 10))
+    X_train = X_train.reshape(X_train.shape[0], -1) / 255.0
+    X_test = X_test.reshape(X_test.shape[0], -1) / 255.0
+    Y_train = one_hot(y_train, 10)
+    Y_test = one_hot(y_test, 10)
+
     print("调整训练集形状：", X_train.shape, Y_train.shape)
-    print("\n第一张图片的标签：", y_train[0])
-    print("第一张图片的像素矩阵：")
-    print(X_train[0])
-    # 打印第1张图片的像素矩阵
-    print("第一张图片的标签：", Y_train[0])
+    print("调整测试集形状：", X_test.shape, Y_test.shape)
+
+    print("\n前 3 个原始标签：", y_train[:3])
+    print("前 3 个独热标签：\n", Y_train[:3])
+    print("每行之和（应全为 1）：", Y_train[:3].sum(axis=1))
 
 
 if __name__ == "__main__":
