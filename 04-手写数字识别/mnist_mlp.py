@@ -1,5 +1,4 @@
-import json
-import os
+import matplotlib.pyplot as plt
 import time
 
 import autograd.numpy as np
@@ -49,6 +48,11 @@ def train_network(X, Y, n_hidden, lr, epochs, seed=1, tag="", optimizer="gd"):
 
     return P
 
+def predict(X, P):
+    W1, b1, W2, b2 = P
+    H = np.tanh(X @ W1 + b1)
+    return H @ W2 + b2
+
 def one_hot(y, num_classes=10):
     """把数字标签 (N,) 转成独热编码 (N, num_classes)。
 
@@ -84,6 +88,18 @@ def main():
     print("\n前 3 个原始标签：", y_train[:3])
     print("前 3 个独热标签：\n", Y_train[:3])
     print("每行之和（应全为 1）：", Y_train[:3].sum(axis=1))
+
+    mlp = train_network(X_train, Y_train, n_hidden=32, lr=0.01, epochs=10000, 
+                        seed=42, tag="MLP", optimizer="adam")
+
+    # ================== 4. 测试 ==================
+    # 测10个
+    for i in range(10):
+        x = X_test[i:i+1]
+        y = y_test[i]
+        y_pred = predict(x, mlp)
+        y_pred_label = np.argmax(y_pred, axis=1)[0]
+        print(f"第 {i} 张图片，真实标签：{y}，预测标签：{y_pred_label}")
 
 
 if __name__ == "__main__":
