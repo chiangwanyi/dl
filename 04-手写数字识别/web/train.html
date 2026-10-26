@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23185FA5'/%3E%3Ctext x='8' y='12' font-size='11' text-anchor='middle' fill='white' font-family='monospace'%3E9%3C/text%3E%3C/svg%3E">
+<title>MNIST CNN · 训练过程逐层可视化</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#fff; --line:#e2e5e8; --ink:#1a1c1e; --muted:#6b7177;
+    --blue:#185FA5; --blue-s:#E6F1FB; --blue-d:#0C447C;
+    --teal:#0F6E56; --teal-s:#E1F5EE;
+    --amber:#854F0B; --amber-s:#FAEEDA;
+    --red:#A32D2D; --red-s:#FCEBEB;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.7;
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+
+  header.top{margin-bottom:18px}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;color:var(--blue);letter-spacing:.06em;margin-bottom:8px}
+  h1{font-size:23px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+  .lede{margin:0;color:#4a5055;font-size:13.6px;max-width:86ch}
+  code{font-family:var(--mono);font-size:12.4px;background:#eef0f2;padding:1px 5px;border-radius:4px;color:#2c3238}
+
+  /* ---------- 形状链 ---------- */
+  .flow{display:flex;align-items:center;gap:0;overflow-x:auto;padding:12px 2px 4px;
+    scrollbar-width:thin}
+  .flow .b{flex:0 0 auto;text-align:center;border:1px solid var(--line);background:var(--card);
+    border-radius:8px;padding:5px 9px;min-width:64px}
+  .flow .b .s{font-family:var(--mono);font-size:11.6px;color:var(--ink);white-space:nowrap}
+  .flow .b .c{font-size:10px;color:var(--muted);font-family:var(--mono)}
+  .flow .b.io{border-color:#b5d4f4;background:var(--blue-s)}
+  .flow .b.fc{border-color:#a9dfd0;background:var(--teal-s)}
+  .flow .ar{flex:0 0 auto;color:#b9bec4;font-size:12px;padding:0 5px}
+
+  /* ---------- 控制条 ---------- */
+  .bar{position:sticky;top:0;z-index:40;background:rgba(244,245,247,.94);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+    margin:14px -22px 20px;padding:10px 22px}
+  .bar .in{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  button{font:inherit;font-size:12.6px;padding:5px 12px;border-radius:7px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer}
+  button:hover{background:#f0f1f3}
+  button.primary{background:var(--blue);border-color:var(--blue);color:#fff;min-width:96px}
+  button.primary:hover{background:var(--blue-d)}
+  #ckpt{flex:1;min-width:180px;accent-color:var(--blue)}
+  .pos{font-family:var(--mono);font-size:11.8px;color:var(--muted);white-space:nowrap}
+  .pos b{color:var(--ink);font-weight:600}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#fff}
+  .seg button{border:0;border-radius:0;padding:5px 11px;color:var(--muted);font-size:12.4px}
+  .seg button.on{background:var(--blue-s);color:var(--blue-d);font-weight:600}
+
+  /* ---------- 布局 ---------- */
+  main{display:grid;grid-template-columns:246px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){main{grid-template-columns:1fr}}
+  aside{display:flex;flex-direction:column;gap:12px;position:sticky;top:74px}
+  @media(max-width:900px){aside{position:static}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:13px 14px}
+  .ch{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.03em;margin-bottom:9px;
+    display:flex;justify-content:space-between;align-items:baseline}
+  .ch .hint{font-weight:400;font-family:var(--mono);font-size:10.5px}
+
+  .thumbs{display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
+  .thumbs canvas{width:100%;aspect-ratio:1;image-rendering:pixelated;border-radius:3px;
+    background:#000;cursor:pointer;border:2px solid transparent;display:block}
+  .thumbs canvas.on{border-color:var(--blue)}
+  .thumbs canvas:hover{border-color:#9fc6ea}
+
+  .pred{display:flex;align-items:baseline;gap:10px}
+  #predDigit{font-size:38px;font-weight:600;line-height:1;color:var(--blue);font-variant-numeric:tabular-nums}
+  #predMeta{font-size:12px;color:var(--muted)}
+  .kv{margin-top:9px;border-top:1px solid var(--line);padding-top:9px;display:grid;
+    grid-template-columns:1fr auto;gap:3px 8px;font-size:12px}
+  .kv dt{color:var(--muted)}
+  .kv dd{margin:0;font-family:var(--mono);font-size:11.8px;text-align:right}
+  .kv dd.good{color:var(--teal)}
+  #curve{width:100%;height:96px;display:block;cursor:crosshair}
+  .clegend{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);
+    font-family:var(--mono);margin-top:3px}
+
+  /* ---------- 层卡片 ---------- */
+  #pipeline{display:flex;flex-direction:column;gap:0}
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:13px 15px 11px}
+  .stage header{display:flex;align-items:baseline;gap:9px;margin-bottom:10px;flex-wrap:wrap}
+  .stage .idx{font-family:var(--mono);font-size:11px;color:var(--blue);background:var(--blue-s);
+    border-radius:4px;padding:0 5px;line-height:17px}
+  .stage h3{font-size:14.5px;font-weight:600;margin:0;flex:1}
+  .stage .shape{font-family:var(--mono);font-size:12.6px;color:var(--blue-d);background:var(--blue-s);
+    border:1px solid #c9e0f7;border-radius:5px;padding:1px 7px;white-space:nowrap}
+  .stage .cnt{font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .cols{display:grid;grid-template-columns:1fr 168px;gap:16px;align-items:start}
+  @media(max-width:700px){.cols{grid-template-columns:1fr}}
+
+  .maps{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-start;min-height:20px}
+  .maps canvas{image-rendering:pixelated;border-radius:2px;background:#080b0e;display:block;
+    cursor:zoom-in;outline:1px solid #e8eaec;outline-offset:0}
+  .maps canvas:hover{outline:2px solid var(--blue)}
+
+  dl.stats{margin:0;display:grid;grid-template-columns:1fr auto;gap:2px 6px;
+    font-size:11.6px;align-content:start}
+  dl.stats dt{color:var(--muted);white-space:nowrap}
+  dl.stats dd{margin:0;font-family:var(--mono);font-size:11.4px;text-align:right}
+  dl.stats dd.delta{color:var(--amber)}
+  dl.stats dd.zero{color:#b0262b}
+
+  .note{margin:9px 0 0;font-size:12.4px;color:#54595e;line-height:1.65;border-top:1px dashed var(--line);
+    padding-top:8px}
+  .connector{display:flex;align-items:center;gap:8px;padding:5px 0 5px 24px;color:var(--muted);
+    font-size:11.4px;font-family:var(--mono)}
+  .connector .ln{width:1px;height:12px;background:#cfd3d7}
+
+  /* fc / softmax 的条形 */
+  .fcr{display:grid;grid-template-columns:30px 1fr 54px;align-items:center;gap:7px;
+    font-size:11.6px;font-family:var(--mono);margin-bottom:3px}
+  .fcr .lb{color:var(--muted);text-align:center}
+  .fcr.true .lb{color:var(--teal);font-weight:700}
+  .fcr.pred .lb{color:var(--blue-d);font-weight:700}
+  .trk{height:12px;background:#f0f2f4;border-radius:3px;position:relative;overflow:hidden}
+  .trk .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#d5d8db}
+  .fil{position:absolute;top:0;bottom:0;border-radius:2px;background:var(--teal)}
+  .fil.neg{background:#c97a7a}
+  .fcr .vl{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .cvtip{font-size:11.4px;color:var(--muted);font-family:var(--mono)}
+
+  /* ---------- 放大 ---------- */
+  #zoom{position:fixed;inset:0;background:rgba(24,26,28,.62);display:none;z-index:99;
+    align-items:center;justify-content:center;padding:24px}
+  #zoom.on{display:flex}
+  #zoom .box{background:#fff;border-radius:12px;padding:16px 18px;max-width:min(94vw,760px);
+    max-height:92vh;overflow:auto}
+  #zoom h4{margin:0 0 3px;font-size:14px}
+  #zoom .sub{font-size:11.6px;color:var(--muted);font-family:var(--mono);margin-bottom:10px}
+  #zoom canvas{image-rendering:pixelated;display:block;border-radius:4px;background:#080b0e;
+    box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  #zoom .foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;
+    font-size:11.4px;color:var(--muted);font-family:var(--mono)}
+
+  .warn{background:var(--amber-s);border:1px solid #f0d3a5;color:var(--amber);border-radius:8px;
+    padding:8px 12px;font-size:12.4px;margin-bottom:14px;display:none}
+  .warn.on{display:block}
+  .fatal{background:var(--red-s);border:1px solid #f0c4c4;color:var(--red);border-radius:9px;
+    padding:14px 16px;font-size:13.4px}
+
+  .legend{display:flex;align-items:center;gap:7px;font-size:11.6px;color:var(--muted);
+    margin:-6px 0 14px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:44px;height:9px;border-radius:2px;
+    border:1px solid rgba(0,0,0,.06)}
+  .legend .sb{margin:0 4px 0 14px}
+  .legend code{font-size:11.4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow">04-手写数字识别 / mnist_cnn.py<span style="color:#c3c8cd"> · </span><a href="network.html" style="color:#185FA5;text-decoration:none">网络图 + 实时手写版 →</a></div>
+    <h1>一张图，13,000 步训练，9 层 —— 尺寸和内容怎么变</h1>
+    <p class="lede">
+      拖动下面的时间轴，就是在「把训练进度倒回去」：同一张测试图，喂进当时那个快照的网络，
+      看每一层的<b>形状</b>和<b>像素</b>各自变成了什么样。所有特征图都是拿导出的权重在浏览器里真算的，
+      不是示意图。
+    </p>
+  </header>
+
+  <div class="flow" id="flow"></div>
+
+  <div class="bar">
+    <div class="in">
+      <button id="play" class="primary">▶ 回放训练</button>
+      <input type="range" id="ckpt" min="0" max="1" step="1" value="0">
+      <span class="pos" id="ckptLabel">…</span>
+      <div class="seg" id="viewSeg">
+        <button data-v="act" class="on">看激活值</button>
+        <button data-v="diff">看变化量</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="warn" id="warn"></div>
+
+  <div class="legend">
+    <span>特征图</span>
+    <canvas id="lgAct" width="44" height="9" style="width:44px;height:9px;border-radius:2px"></canvas>
+    <span>暗 = 0 · 亮 = 强（每个通道各自按最大值归一）</span>
+    <span class="sb">看变化量时</span>
+    <canvas id="lgDiff" width="44" height="9" style="width:44px;height:9px;border-radius:2px"></canvas>
+    <span>暗 = 和上一个快照一样 · 亮 = 变了很多</span>
+  </div>
+
+  <main>
+    <aside>
+      <div class="card">
+        <div class="ch">测试图 <span class="hint" id="thumbsHint"></span></div>
+        <div class="thumbs" id="thumbs"></div>
+      </div>
+
+      <div class="card">
+        <div class="ch">这个快照的判断</div>
+        <div class="pred">
+          <span id="predDigit">–</span>
+          <span id="predMeta"></span>
+        </div>
+        <dl class="kv">
+          <dt>真实标签</dt><dd id="kTrue">–</dd>
+          <dt>训练步数</dt><dd id="kStep">–</dd>
+          <dt>batch loss</dt><dd id="kLoss">–</dd>
+          <dt>测试准确率</dt><dd id="kAcc">–</dd>
+        </dl>
+      </div>
+
+      <div class="card">
+        <div class="ch">loss 曲线 <span class="hint">点一下跳过去</span></div>
+        <canvas id="curve"></canvas>
+        <div class="clegend"><span>step 0</span><span id="curveEnd"></span></div>
+      </div>
+    </aside>
+
+    <section id="pipeline"></section>
+  </main>
+</div>
+
+<div id="zoom"><div class="box">
+  <h4 id="zTitle"></h4>
+  <div class="sub" id="zSub"></div>
+  <canvas id="zCanvas"></canvas>
+  <div class="foot"><span id="zTip">移到格子上看数值</span><span>点击空白处关闭 · Esc</span></div>
+</div></div>
+
+<script src="trace_cnn.js"></script>
+<script src="cnn_forward.js"></script>
+<script>
+(function(){
+  var T = window.CNN_TRACE, F = window.CNNForward;
+  if(!T || !F){
+    document.getElementById('warn').className = 'warn on';
+    document.getElementById('warn').innerHTML =
+      '<div class="fatal">没找到 <code>trace_cnn.js</code> 或 <code>cnn_forward.js</code>。' +
+      '先在 <code>04-手写数字识别/</code> 下跑一次 <code>python trace_cnn.py</code> 导出训练快照。</div>';
+    return;
+  }
+
+  var A = T.arch, ST = F.stages(A), CK = T.checkpoints, N = CK.length;
+  var IMGN = T.images.length;
+  var CS = 4;                    // 每格 4px，所有层统一 → 画出来就能直接比大小
+  var state = { img:0, ck:N-1, view:'act' };
+
+  /* ---------------- 颜色表 ---------------- */
+  function ramp(stops){
+    var lut = new Uint8Array(256*3);
+    for(var i=0;i<256;i++){
+      var t = i/255, a = stops[0], b = stops[stops.length-1];
+      for(var k=0;k<stops.length-1;k++){
+        if(t >= stops[k][0] && t <= stops[k+1][0]){ a = stops[k]; b = stops[k+1]; break; }
+      }
+      var span = (b[0]-a[0]) || 1, u = (t-a[0])/span;
+      u = Math.max(0, Math.min(1, u));
+      lut[i*3]   = Math.round(a[1][0] + (b[1][0]-a[1][0])*u);
+      lut[i*3+1] = Math.round(a[1][1] + (b[1][1]-a[1][1])*u);
+      lut[i*3+2] = Math.round(a[1][2] + (b[1][2]-a[1][2])*u);
+    }
+    return lut;
+  }
+  var LUT_ACT = ramp([[0,[8,11,14]],[0.12,[13,33,53]],[0.42,[24,95,165]],[0.72,[127,184,232]],[1,[244,250,255]]]);
+  var LUT_DIFF = ramp([[0,[10,12,14]],[0.3,[61,42,16]],[0.65,[168,106,18]],[1,[255,217,138]]]);
+
+  /* 图例色条 */
+  [['lgAct', LUT_ACT], ['lgDiff', LUT_DIFF]].forEach(function(p){
+    var cv = document.getElementById(p[0]);
+    if(!cv) return;
+    var ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+    var img = ctx.createImageData(W, H), lut = p[1];
+    for(var y = 0; y < H; y++){
+      for(var x = 0; x < W; x++){
+        var k = (((x / (W - 1)) * 255) | 0) * 3, o = (y * W + x) * 4;
+        img.data[o] = lut[k]; img.data[o+1] = lut[k+1]; img.data[o+2] = lut[k+2]; img.data[o+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  });
+
+  /* ---------------- 数据流：算一遍并缓存 ---------------- */
+  var actCache = {};                                          // "ck:img" -> 各层激活
+  function acts(ci, ii){
+    var key = ci + ':' + ii;
+    if(!actCache[key]) actCache[key] = F.forward(CK[ci].P, F.toInput(T.images[ii].x, A.img), A);
+    return actCache[key];
+  }
+
+  /* ---------------- 顶部形状链 ---------------- */
+  (function(){
+    var flow = document.getElementById('flow'), html = '';
+    ST.forEach(function(s, i){
+      if(i) html += '<span class="ar">→</span>';
+      var cls = s.type === 'fc' || s.type === 'soft' ? 'fc' : (i === 0 ? 'io' : '');
+      html += '<div class="b ' + cls + '"><div class="s">' + s.shape.join('×') + '</div>' +
+              '<div class="c">' + s.count.toLocaleString() + '</div></div>';
+    });
+    flow.innerHTML = html;
+  })();
+
+  /* ---------------- 建层卡片 ---------------- */
+  var views = {};   // key -> {cv:[], ctx:[], dd:{}, bars:...}
+
+  function makeCanvas(m, cell){
+    var cv = document.createElement('canvas');
+    cv.width = m.W || 1; cv.height = m.H || 1;
+    cv.style.width = (cv.width * cell) + 'px';
+    cv.style.height = (cv.height * cell) + 'px';
+    return cv;
+  }
+
+  var pipeline = document.getElementById('pipeline');
+
+  ST.forEach(function(s, si){
+    var art = document.createElement('article');
+    art.className = 'stage';
+    art.dataset.key = s.key;
+
+    var head = document.createElement('header');
+    head.innerHTML = '<span class="idx">' + String(si).padStart(2,'0') + '</span>' +
+      '<h3>' + s.name + '</h3>' +
+      '<span class="shape">' + s.shape.join(' × ') + '</span>' +
+      '<span class="cnt">' + s.count.toLocaleString() + ' 个激活值</span>';
+    art.appendChild(head);
+
+    var cols = document.createElement('div');
+    cols.className = 'cols';
+    var maps = document.createElement('div');
+    maps.className = 'maps';
+    cols.appendChild(maps);
+
+    var dl = document.createElement('dl');
+    dl.className = 'stats';
+    dl.innerHTML =
+      '<dt>感受野</dt><dd>' + s.rf + '×' + s.rf + '</dd>' +
+      '<dt>参数</dt><dd>' + (s.params ? s.params.toLocaleString() : '0') + '</dd>' +
+      '<dt>非零占比</dt><dd class="sp">–</dd>' +
+      '<dt>最大</dt><dd class="mx">–</dd>' +
+      '<dt>均值</dt><dd class="mn">–</dd>' +
+      '<dt>较上一快照</dt><dd class="delta">–</dd>';
+    cols.appendChild(dl);
+    art.appendChild(cols);
+
+    var note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = s.note;
+    art.appendChild(note);
+
+    pipeline.appendChild(art);
+
+    var v = { maps: maps, dd: {
+      sp: dl.querySelector('.sp'), mx: dl.querySelector('.mx'),
+      mn: dl.querySelector('.mn'), delta: dl.querySelector('.delta')
+    }, cv: [], ctx: [], kind: s.type };
+
+    if(s.type === 'input' || s.type === 'conv' || s.type === 'pool'){
+      var n = s.type === 'input' ? 1 : s.shape[2];
+      for(var c = 0; c < n; c++){
+        var cv = makeCanvas({H:s.shape[0], W:s.shape[1]}, CS);
+        (function(ch){
+          cv.addEventListener('click', function(){ zoom(s.key, ch); });
+          cv.title = s.type === 'input' ? '输入' : ('通道 ' + ch);
+        })(c);
+        maps.appendChild(cv);
+        v.cv.push(cv);
+        v.ctx.push(cv.getContext('2d'));
+      }
+    } else if(s.type === 'flat'){
+      var side = Math.round(Math.sqrt(s.count));
+      var cv = makeCanvas({H:side, W:side}, 7);
+      cv.addEventListener('click', function(){ zoom(s.key, 0); });
+      maps.appendChild(cv);
+      v.cv.push(cv); v.ctx.push(cv.getContext('2d'));
+      v.side = side;
+    } else if(s.type === 'fc' && s.count > 16){
+      var c2 = document.createElement('canvas');
+      c2.width = s.count * 4; c2.height = 66;
+      c2.style.width = (s.count * 4) + 'px';
+      c2.style.height = '66px';
+      maps.appendChild(c2);
+      v.cv.push(c2); v.ctx.push(c2.getContext('2d'));
+      v.fc = true; v.bw = 4;
+    } else {
+      var box = document.createElement('div');
+      box.style.flex = '1';
+      maps.appendChild(box);
+      v.rows = [];
+      var order = [];
+      for(var d = 0; d < s.count; d++) order.push(d);
+      order.forEach(function(d){
+        var r = document.createElement('div');
+        r.className = 'fcr';
+        r.innerHTML = '<span class="lb">' + d + '</span>' +
+          '<span class="trk"><span class="mid"></span><span class="fil"></span></span>' +
+          '<span class="vl">–</span>';
+        box.appendChild(r);
+        v.rows.push({el:r, fil:r.querySelector('.fil'), vl:r.querySelector('.vl')});
+      });
+    }
+
+    if(si < ST.length - 1){
+      var nxt = ST[si+1];
+      var tr = document.createElement('div');
+      tr.className = 'connector';
+      tr.innerHTML = '<span class="ln"></span><span>' + transition(s, nxt) + '</span>';
+      pipeline.appendChild(tr);
+    }
+
+    views[s.key] = v;
+  });
+
+  function transition(a, b){
+    if(b.type === 'conv') return 'conv 3×3（无 padding）→ 每条边短 2：' + a.shape[0] + '×' + a.shape[1] + ' → ' + b.shape[0] + '×' + b.shape[1];
+    if(b.type === 'pool') return 'maxpool 2×2 → 减半' + (a.shape[0] % 2 ? '（奇数边先裁掉一行/列）' : '') + '：' + a.shape[0] + '×' + a.shape[1] + ' → ' + b.shape[0] + '×' + b.shape[1];
+    if(b.type === 'flat') return 'flatten → ' + a.shape[0] + '×' + a.shape[1] + '×' + a.shape[2] + ' 摊成 ' + b.shape[0] + ' 维';
+    if(b.type === 'fc')  return '全连接 → ' + b.shape[0] + ' 维';
+    if(b.type === 'soft') return 'softmax → 10 个概率（和为 1）';
+    return '';
+  }
+
+  /* ---------------- 画图 ---------------- */
+  function stageMaxDiff(cur, prev, s){
+    var a = cur[s.key], b = prev[s.key], mx = 0;
+    if(!a || !b) return 1;
+    if(s.type === 'flat' || s.type === 'conv' || s.type === 'pool'){
+      for(var i = 0; i < a.data.length; i++){
+        var d = Math.abs(a.data[i] - b.data[i]);
+        if(d > mx) mx = d;
+      }
+    } else if(s.type === 'fc'){
+      for(var j = 0; j < a.length; j++){
+        var e = Math.abs(a[j] - b[j]);
+        if(e > mx) mx = e;
+      }
+    }
+    return mx || 1;
+  }
+
+  function drawChannel(v, ch, s, cur, prev, gmax){
+    var m = cur[s.key], cv = v.cv[ch], ctx = v.ctx[ch];
+    var H, W, C, data, prevData = null, cell;
+
+    if(s.type === 'input'){
+      H = A.img; W = A.img; C = 1; data = m.data;
+      var img0 = ctx.createImageData(W, H);
+      for(var q = 0; q < W * H; q++){
+        var g = Math.max(0, Math.min(255, Math.round(data[q] * 255)));
+        img0.data[q*4] = g; img0.data[q*4+1] = g; img0.data[q*4+2] = g; img0.data[q*4+3] = 255;
+      }
+      ctx.putImageData(img0, 0, 0);
+      return;
+    }
+
+    H = m.H; W = m.W; C = m.C; data = m.data;
+    if(s.type === 'flat'){ H = v.side; W = v.side; C = 1; }
+    if(prev && prev[s.key] && state.view === 'diff'){
+      var p = prev[s.key];
+      prevData = (s.type === 'flat') ? p.data : p.data;
+    }
+
+    var img = ctx.createImageData(W, H), d = img.data;
+    var mx = 0, i, n = W * H;
+
+    if(state.view === 'diff'){
+      mx = gmax;
+      for(i = 0; i < n; i++){
+        var val = prevData ? Math.abs(data[i*C+ch] - prevData[i*C+ch]) : 0;
+        var t = Math.min(1, val / mx);
+        var k3 = (t * 255) | 0;
+        d[i*4] = LUT_DIFF[k3*3]; d[i*4+1] = LUT_DIFF[k3*3+1]; d[i*4+2] = LUT_DIFF[k3*3+2]; d[i*4+3] = 255;
+      }
+    } else {
+      for(i = 0; i < n; i++){ var vv = data[i*C+ch]; if(vv > mx) mx = vv; }
+      if(mx <= 0) mx = 1;
+      for(i = 0; i < n; i++){
+        var t2 = Math.min(1, data[i*C+ch] / mx);
+        var k4 = (t2 * 255) | 0;
+        d[i*4] = LUT_ACT[k4*3]; d[i*4+1] = LUT_ACT[k4*3+1]; d[i*4+2] = LUT_ACT[k4*3+2]; d[i*4+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  /* 64 个隐藏单元的柱状图（ReLU 之后都 ≥0，从底部往上画） */
+  function drawBars(v, s, vals){
+    var cv = v.cv[0], ctx = v.ctx[0];
+    var n = vals.length, H = cv.height, W = cv.width, bw = v.bw || 4;
+    ctx.clearRect(0, 0, W, H);
+    var mx = 0;
+    for(var i = 0; i < n; i++) mx = Math.max(mx, vals[i]);
+    mx = mx || 1;
+    for(var j = 0; j < n; j++){
+      var hgt = vals[j] / mx * (H - 2);
+      ctx.fillStyle = vals[j] === 0 ? '#d0d3d6' : '#185FA5';
+      ctx.fillRect(j * bw, H - Math.max(1, hgt), bw - 1, Math.max(1, hgt));
+    }
+    ctx.fillStyle = '#e6e9ec'; ctx.fillRect(0, H - 1, W, 1);
+  }
+
+  function drawRows(v, s, vals, isSoft){
+    var mxAbs = 0;
+    for(var i = 0; i < vals.length; i++) mxAbs = Math.max(mxAbs, Math.abs(vals[i]));
+    var trueLb = T.images[state.img].label;
+    var best = 0;
+    for(var b = 1; b < vals.length; b++) if(vals[b] > vals[best]) best = b;
+    v.rows.forEach(function(r, d){
+      var x = vals[d];
+      if(isSoft){
+        r.fil.style.left = '0';
+        r.fil.style.width = (x * 100).toFixed(1) + '%';
+      } else {
+        var half = mxAbs ? Math.abs(x) / mxAbs * 50 : 0;
+        r.fil.style.left = (x >= 0 ? 50 : 50 - half) + '%';
+        r.fil.style.width = half + '%';
+      }
+      r.fil.className = 'fil' + (x < 0 ? ' neg' : '');
+      r.vl.textContent = isSoft ? (x * 100).toFixed(1) + '%' : x.toFixed(2);
+      r.el.className = 'fcr' + (d === trueLb ? ' true' : '') + (isSoft && d === best ? ' pred' : '');
+    });
+  }
+
+  /* ---------------- 主更新 ---------------- */
+  var warnEl = document.getElementById('warn');
+
+  function update(){
+    var cur = acts(state.ck, state.img);
+    var prev = state.ck > 0 ? acts(state.ck - 1, state.img) : null;
+    var ck = CK[state.ck], im = T.images[state.img];
+
+    ST.forEach(function(s){
+      var v = views[s.key];
+      var gmax = state.view === 'diff' ? stageMaxDiff(cur, prev, s) : 1;
+
+      if(s.type === 'input' || s.type === 'conv' || s.type === 'pool'){
+        for(var c = 0; c < v.cv.length; c++) drawChannel(v, c, s, cur, prev, gmax);
+      } else if(s.type === 'flat'){
+        drawChannel(v, 0, s, cur, prev, gmax);
+      } else if(s.type === 'fc' && s.count > 16){
+        drawBars(v, s, cur.fc1);
+      } else if(s.type === 'soft'){
+        drawRows(v, s, cur.soft, true);
+      } else {
+        drawRows(v, s, cur.fc2, false);   // 10 个 logits：带数字标签，中轴对称
+      }
+
+      /* 统计量 */
+      var arr = (s.type === 'fc') ? (s.key === 'fc1' ? cur.fc1 : cur.fc2)
+              : (s.type === 'soft') ? cur.soft
+              : cur[s.key].data;
+      var n = arr.length, zeros = 0, mx = 0, sum = 0;
+      for(var i = 0; i < n; i++){
+        var q = arr[i];
+        if(q === 0) zeros++;
+        if(q > mx) mx = q;
+        sum += q;
+      }
+      v.dd.sp.textContent = (100 * (1 - zeros / n)).toFixed(0) + '%';
+      v.dd.sp.className = (zeros / n > 0.5) ? 'zero' : '';
+      v.dd.mx.textContent = mx.toFixed(2);
+      v.dd.mn.textContent = (sum / n).toFixed(3);
+
+      if(!prev || s.type === 'input'){
+        v.dd.delta.textContent = s.type === 'input' ? '同一张图' : '—';
+      } else {
+        var parr = (s.type === 'fc') ? (s.key === 'fc1' ? prev.fc1 : prev.fc2)
+                  : (s.type === 'soft') ? prev.soft : prev[s.key].data;
+        var acc2 = 0, base = 0;
+        for(var k = 0; k < n; k++){
+          acc2 += Math.abs(arr[k] - parr[k]);
+          base += Math.abs(arr[k]) + Math.abs(parr[k]);
+        }
+        var rel = base > 0 ? (2 * acc2 / base * 100) : 0;
+        v.dd.delta.textContent = (rel < 0.05 ? '≈0' : rel.toFixed(rel < 10 ? 1 : 0) + '%');
+        v.dd.delta.className = 'delta' + (rel > 30 ? ' zero' : '');
+      }
+    });
+
+    /* 侧栏 */
+    var probs = cur.soft, best = 0;
+    for(var b = 1; b < probs.length; b++) if(probs[b] > probs[best]) best = b;
+    document.getElementById('predDigit').textContent = best;
+    document.getElementById('predMeta').textContent =
+      '置信度 ' + (probs[best] * 100).toFixed(1) + '% · ' +
+      (best === im.label ? '猜对了' : '猜错了（真实是 ' + im.label + '）');
+    document.getElementById('kTrue').textContent = im.label;
+    document.getElementById('kStep').textContent = ck.step.toLocaleString() + ' / ' + totalSteps().toLocaleString();
+    document.getElementById('kLoss').textContent = ck.stepLoss === null ? '—' : ck.stepLoss.toFixed(3);
+    var accEl = document.getElementById('kAcc');
+    accEl.textContent = (ck.testAcc * 100).toFixed(1) + '%';
+    accEl.className = ck.testAcc > 0.9 ? 'good' : '';
+
+    document.getElementById('ckptLabel').innerHTML =
+      'step <b>' + ck.step.toLocaleString() + '</b> · epoch ' + ck.epoch + ' · loss ' + (ck.loss === null ? '—' : ck.loss.toFixed(3));
+    document.getElementById('ckpt').value = state.ck;
+
+    /* 自检：和 numpy 参考值比一下，防止 JS 前向写错还能画出漂亮的图 */
+    var ref = ck.probeProbs[state.img], worst = 0;
+    for(var w = 0; w < ref.length; w++) worst = Math.max(worst, Math.abs(probs[w] - ref[w]));
+    if(worst > 2e-3){
+      warnEl.className = 'warn on';
+      warnEl.textContent = '⚠ 浏览器算出的概率和 numpy 参考值差 ' + worst.toExponential(1) +
+        '，图可能不可信（检查 cnn_forward.js 的索引）。';
+    } else {
+      warnEl.className = 'warn';
+    }
+
+    document.querySelectorAll('#thumbs canvas').forEach(function(c, i){
+      c.className = i === state.img ? 'on' : '';
+    });
+    drawCurve();
+  }
+
+  function totalSteps(){ return T.curve.step[T.curve.step.length - 1]; }
+
+  /* ---------------- 缩略图 ---------------- */
+  (function(){
+    var box = document.getElementById('thumbs');
+    T.images.forEach(function(im, i){
+      var cv = document.createElement('canvas');
+      cv.width = 28; cv.height = 28;
+      var ctx = cv.getContext('2d');
+      var img = ctx.createImageData(28, 28);
+      for(var p = 0; p < 784; p++){
+        var g = im.x[p];
+        img.data[p*4] = g; img.data[p*4+1] = g; img.data[p*4+2] = g; img.data[p*4+3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+      cv.title = '标签 ' + im.label;
+      cv.addEventListener('click', function(){ state.img = i; update(); });
+      box.appendChild(cv);
+    });
+    document.getElementById('thumbsHint').textContent = T.images.length + ' 张';
+  })();
+
+  /* ---------------- loss 曲线 ---------------- */
+  var curveCv = document.getElementById('curve');
+  function drawCurve(){
+    var dpr = window.devicePixelRatio || 1;
+    var w = curveCv.clientWidth, h = 96;
+    curveCv.width = Math.round(w * dpr); curveCv.height = Math.round(h * dpr);
+    var ctx = curveCv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    var xs = T.curve.step, ys = T.curve.loss;
+    var xMax = xs[xs.length - 1], yMax = 0;
+    for(var i = 0; i < ys.length; i++) if(ys[i] > yMax) yMax = ys[i];
+    yMax *= 1.05;
+    var pad = 4;
+    function px(s){ return pad + (s / xMax) * (w - pad * 2); }
+    function py(v){ return h - pad - (v / yMax) * (h - pad * 2); }
+
+    // 平滑曲线
+    ctx.beginPath();
+    for(var j = 0; j < xs.length; j++){
+      var X = px(xs[j]), Y = py(ys[j]);
+      if(j === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    }
+    ctx.strokeStyle = '#9fb4c8'; ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 快照竖线
+    CK.forEach(function(c){
+      var X = px(c.step);
+      ctx.strokeStyle = c.step === CK[state.ck].step ? '#185FA5' : '#dfe3e7';
+      ctx.lineWidth = c.step === CK[state.ck].step ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(X, 2); ctx.lineTo(X, h - 2); ctx.stroke();
+    });
+    // 当前点
+    var cc = CK[state.ck];
+    if(cc.stepLoss !== null){
+      ctx.beginPath();
+      ctx.arc(px(cc.step), py(cc.stepLoss), 2.6, 0, Math.PI * 2);
+      ctx.fillStyle = '#185FA5'; ctx.fill();
+    }
+    document.getElementById('curveEnd').textContent = 'step ' + xMax;
+  }
+
+  curveCv.addEventListener('click', function(e){
+    var r = curveCv.getBoundingClientRect();
+    var x = (e.clientX - r.left) / r.width;
+    var target = x * totalSteps(), bestI = 0, bestD = Infinity;
+    CK.forEach(function(c, i){
+      var d = Math.abs(c.step - target);
+      if(d < bestD){ bestD = d; bestI = i; }
+    });
+    state.ck = bestI; update();
+  });
+
+  /* ---------------- 放大镜 ---------------- */
+  var zoomEl = document.getElementById('zoom');
+  var zCv = document.getElementById('zCanvas'), zCtx = zCv.getContext('2d');
+  var zState = null;
+
+  function zoom(key, ch){
+    var s = ST.find(function(x){ return x.key === key; });
+    if(!s || s.type === 'fc' || s.type === 'soft') return;
+    var cur = acts(state.ck, state.img);
+    var prev = state.ck > 0 ? acts(state.ck - 1, state.img) : null;
+    var m = cur[key];
+    var H = m.H, W = m.W, C = m.C, data = m.data;
+    if(s.type === 'input'){ H = A.img; W = A.img; C = 1; data = m.data; }
+    if(s.type === 'flat'){ H = Math.round(Math.sqrt(m.n)); W = H; C = 1; }
+
+    zState = {s:s, ch:ch, H:H, W:W, C:C, data:data, prev:prev, cell:0};
+    var cell = Math.max(4, Math.min(22, Math.floor(560 / Math.max(H, W))));
+    zState.cell = cell;
+    zCv.width = W; zCv.height = H;
+    zCv.style.width = (W * cell) + 'px';
+    zCv.style.height = (H * cell) + 'px';
+
+    var mn = Infinity, mx = -Infinity;
+    for(var i = 0; i < W * H; i++){
+      var v = data[i*C+ch];
+      if(v < mn) mn = v; if(v > mx) mx = v;
+    }
+
+    document.getElementById('zTitle').textContent =
+      s.name + (s.type === 'flat' || s.type === 'input' ? '' : ' · 通道 ' + ch);
+    document.getElementById('zSub').textContent =
+      '每格 ' + cell + 'px · 尺寸 ' + W + '×' + H +
+      ' · 值域 [' + mn.toFixed(3) + ', ' + mx.toFixed(3) + ']' +
+      ' · 快照 step ' + CK[state.ck].step;
+
+    zCtx.putImageData(buildZoomImage(), 0, 0);
+    zoomEl.className = 'on';
+  }
+
+  function buildZoomImage(){
+    var z = zState, H = z.H, W = z.W, C = z.C, data = z.data;
+    var img = zCtx.createImageData(W, H), d = img.data;
+    var isDiff = state.view === 'diff' && z.prev && z.prev[z.s.key];
+    var mx = 0, i, n = W * H;
+    if(isDiff){
+      for(i = 0; i < n; i++) mx = Math.max(mx, Math.abs(data[i*C+z.ch] - z.prev[z.s.key].data[i*C+z.ch]));
+    } else {
+      for(i = 0; i < n; i++) mx = Math.max(mx, data[i*C+z.ch]);
+    }
+    mx = mx || 1;
+    for(i = 0; i < n; i++){
+      var v = isDiff ? Math.abs(data[i*C+z.ch] - z.prev[z.s.key].data[i*C+z.ch]) : data[i*C+z.ch];
+      var L = isDiff ? LUT_DIFF : LUT_ACT;
+      var k = ((Math.min(1, v / mx) * 255) | 0) * 3;
+      d[i*4] = L[k]; d[i*4+1] = L[k+1]; d[i*4+2] = L[k+2]; d[i*4+3] = 255;
+    }
+    return img;
+  }
+
+  zCv.addEventListener('mousemove', function(e){
+    if(!zState) return;
+    var r = zCv.getBoundingClientRect();
+    var x = Math.floor((e.clientX - r.left) / r.width * zState.W);
+    var y = Math.floor((e.clientY - r.top) / r.height * zState.H);
+    if(x < 0 || y < 0 || x >= zState.W || y >= zState.H) return;
+    var v = zState.data[(y * zState.W + x) * zState.C + zState.ch];
+    document.getElementById('zTip').textContent =
+      '(' + x + ', ' + y + ') 的值 ' + v.toFixed(4);
+  });
+
+  zoomEl.addEventListener('click', function(e){
+    if(e.target === zoomEl) zoomEl.className = '';
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') zoomEl.className = '';
+    if(e.target.tagName === 'INPUT') return;
+    if(e.key === 'ArrowRight' && state.ck < N - 1){ state.ck++; update(); }
+    if(e.key === 'ArrowLeft' && state.ck > 0){ state.ck--; update(); }
+    if(e.key === 'ArrowDown' && state.img < IMGN - 1){ state.img++; update(); }
+    if(e.key === 'ArrowUp' && state.img > 0){ state.img--; update(); }
+  });
+
+  /* ---------------- 控件 ---------------- */
+  var slider = document.getElementById('ckpt');
+  slider.max = N - 1;
+  slider.addEventListener('input', function(){ state.ck = +slider.value; update(); });
+
+  var playBtn = document.getElementById('play'), timer = null;
+  playBtn.addEventListener('click', function(){
+    if(timer){ stop(); return; }
+    if(state.ck >= N - 1) state.ck = 0;
+    playBtn.textContent = '❚❚ 暂停';
+    timer = setInterval(function(){
+      if(state.ck >= N - 1){ stop(); return; }
+      state.ck++; update();
+    }, 900);
+    update();
+  });
+  function stop(){ clearInterval(timer); timer = null; playBtn.textContent = '▶ 回放训练'; }
+
+  document.getElementById('viewSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    state.view = b.dataset.v;
+    this.querySelectorAll('button').forEach(function(x){ x.className = x === b ? 'on' : ''; });
+    update();
+  });
+
+  window.addEventListener('resize', function(){ drawCurve(); });
+
+  /* ---------------- 起飞 ---------------- */
+  state.ck = N - 1;
+  update();
+})();
+</script>
+</body>
+</html>

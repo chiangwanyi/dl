@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手写数字识别 · CNN 实时测试</title>
+<style>
+  :root{
+    --bg:#f5f6f7; --card:#ffffff; --line:#e3e5e8; --text:#1d1f21;
+    --muted:#6b7075; --accent:#0F6E56; --accent-soft:#e1f5ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:880px;margin:0 auto;padding:32px 20px 48px}
+  header{margin-bottom:24px}
+  h1{font-size:19px;font-weight:600;margin:0 0 6px}
+  header p{margin:0;font-size:13px;color:var(--muted);line-height:1.6}
+  header a{color:var(--muted);font-size:12px}
+  main{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
+  @media (max-width:720px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  #board{width:280px;height:280px;display:block;border-radius:8px;background:#fff;
+    touch-action:none;cursor:crosshair;border:1px solid var(--line)}
+  .hint{font-size:12px;color:var(--muted);margin:10px 0 12px}
+  button{font:inherit;font-size:13px;padding:7px 16px;border-radius:8px;
+    border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer}
+  button:hover{background:#f0f1f3}
+  .pred{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  #digit{font-size:46px;font-weight:600;line-height:1;color:var(--accent);min-width:52px}
+  #conf{font-size:13px;color:var(--muted)}
+  .bars{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+  .bar-row{display:grid;grid-template-columns:18px 1fr 44px;align-items:center;gap:8px;font-size:12px}
+  .bar-track{height:14px;background:#f0f1f3;border-radius:4px;overflow:hidden}
+  .bar-fill{height:100%;width:0;background:#9fe1cb;border-radius:4px;transition:width .12s linear}
+  .bar-row.top .bar-fill{background:var(--accent)}
+  .bar-row.top{font-weight:600}
+  .bar-val{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar-row.top .bar-val{color:var(--accent)}
+  .preview{display:flex;align-items:center;gap:12px;border-top:1px solid var(--line);padding-top:14px}
+  #preview{width:84px;height:84px;image-rendering:pixelated;border-radius:6px;background:#000}
+  .preview p{margin:0;font-size:12px;color:var(--muted);line-height:1.6}
+  .fmaps{border-top:1px solid var(--line);margin-top:14px;padding-top:14px}
+  .fmaps h2{font-size:12px;font-weight:500;color:var(--muted);margin:0 0 8px}
+  .fmap-row{display:flex;gap:6px}
+  .fmap-row canvas{width:34px;height:34px;image-rendering:pixelated;border-radius:4px;background:#000}
+  .meta{font-size:11px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>手写数字识别 · CNN 实时测试</h1>
+    <p>手写的小卷积网络：conv3×3(1→8) → pool → conv3×3(8→16) → pool → fc64 → fc10，
+       权重由 <code>mnist_cnn.py</code> 导出。<a href="network.html">网络图 + 逐层实时矩阵 →</a> ·
+       <a href="index.html">换成 MLP 全连接版 →</a> ·
+       <a href="train.html">看训练过程逐层可视化 →</a></p>
+  </header>
+
+  <main>
+    <section class="card">
+      <canvas id="board" width="280" height="280"></canvas>
+      <div class="hint">按住鼠标（或手指）在黑板上写一个 0~9，松手前一直在实时预测。</div>
+      <button id="clear">清空画板</button>
+      <div class="fmaps">
+        <h2>第一层卷积的 8 个特征图（用完即弃，仅演示）</h2>
+        <div class="fmap-row" id="fmaps"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pred">
+        <span id="digit">–</span>
+        <span id="conf">还没有笔迹</span>
+      </div>
+      <div class="bars" id="bars"></div>
+      <div class="preview">
+        <canvas id="preview" width="28" height="28"></canvas>
+        <p>模型实际看到的画面<br>裁边 → 等比缩放到 20×20 → 按重心居中到 28×28</p>
+      </div>
+      <div class="meta" id="meta"></div>
+    </section>
+  </main>
+</div>
+
+<script src="model_cnn.js"></script>
+<script>
+(function(){
+  var M = window.MNIST_CNN;
+  if(!M){
+    document.getElementById('conf').textContent = '没有找到 model_cnn.js，请先运行 mnist_cnn.py 导出模型';
+    return;
+  }
+
+  var board = document.getElementById('board');
+  var ctx = board.getContext('2d');
+  var prev = document.getElementById('preview');
+  var pctx = prev.getContext('2d');
+
+  var small = document.createElement('canvas');
+  small.width = 28; small.height = 28;
+  var sctx = small.getContext('2d', {willReadFrequently:true});
+
+  function clearBoard(){
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 28 * 10, 28 * 10);
+    update();
+  }
+
+  var drawing = false, lastX = 0, lastY = 0, pending = false;
+
+  function pos(e){
+    var r = board.getBoundingClientRect();
+    return {x:(e.clientX - r.left) * board.width / r.width,
+            y:(e.clientY - r.top) * board.height / r.height};
+  }
+
+  function stroke(x0, y0, x1, y1){
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 17;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+
+  board.addEventListener('pointerdown', function(e){
+    drawing = true;
+    board.setPointerCapture(e.pointerId);
+    var p = pos(e);
+    lastX = p.x; lastY = p.y;
+    stroke(p.x, p.y, p.x + 0.01, p.y + 0.01);
+    schedule();
+  });
+
+  board.addEventListener('pointermove', function(e){
+    if(!drawing) return;
+    var p = pos(e);
+    stroke(lastX, lastY, p.x, p.y);
+    lastX = p.x; lastY = p.y;
+    schedule();
+  });
+
+  function stop(){ if(!drawing) return; drawing = false; update(); }
+  board.addEventListener('pointerup', stop);
+  board.addEventListener('pointercancel', stop);
+  document.getElementById('clear').addEventListener('click', clearBoard);
+
+  function schedule(){
+    if(pending) return;
+    pending = true;
+    requestAnimationFrame(function(){ pending = false; update(); });
+  }
+
+  function readInk(){
+    sctx.fillStyle = '#fff';
+    sctx.fillRect(0, 0, 28, 28);
+    sctx.drawImage(board, 0, 0, 28, 28);
+    var d = sctx.getImageData(0, 0, 28, 28).data;
+    var ink = new Float32Array(784);
+    for(var i = 0; i < 784; i++) ink[i] = 255 - d[i * 4];
+    return ink;
+  }
+
+  function resizeCrop(src, sw, sh, dw, dh){
+    var out = new Float32Array(dw * dh);
+    for(var y = 0; y < dh; y++){
+      var fy = (y + 0.5) * sh / dh - 0.5;
+      var y0 = Math.max(0, Math.floor(fy)), y1 = Math.min(sh - 1, y0 + 1);
+      var wy = Math.min(1, Math.max(0, fy - y0));
+      for(var x = 0; x < dw; x++){
+        var fx = (x + 0.5) * sw / dw - 0.5;
+        var x0 = Math.max(0, Math.floor(fx)), x1 = Math.min(sw - 1, x0 + 1);
+        var wx = Math.min(1, Math.max(0, fx - x0));
+        var a = src[y0 * sw + x0] * (1 - wx) + src[y0 * sw + x1] * wx;
+        var b = src[y1 * sw + x0] * (1 - wx) + src[y1 * sw + x1] * wx;
+        out[y * dw + x] = a * (1 - wy) + b * wy;
+      }
+    }
+    return out;
+  }
+
+  function preprocess(ink){
+    var minX = 28, minY = 28, maxX = -1, maxY = -1;
+    for(var y = 0; y < 28; y++){
+      for(var x = 0; x < 28; x++){
+        if(ink[y * 28 + x] > 30){
+          if(x < minX) minX = x; if(x > maxX) maxX = x;
+          if(y < minY) minY = y; if(y > maxY) maxY = y;
+        }
+      }
+    }
+    if(maxX < 0) return null;
+
+    var w = maxX - minX + 1, h = maxY - minY + 1;
+    var s = 20 / Math.max(w, h);
+    var tw = Math.max(1, Math.round(w * s)), th = Math.max(1, Math.round(h * s));
+
+    var crop = new Float32Array(w * h);
+    for(var yy = 0; yy < h; yy++)
+      for(var xx = 0; xx < w; xx++)
+        crop[yy * w + xx] = ink[(yy + minY) * 28 + (xx + minX)];
+    var sm = resizeCrop(crop, w, h, tw, th);
+
+    var mass = 0, cx = 0, cy = 0;
+    for(var j = 0; j < th; j++){
+      for(var i = 0; i < tw; i++){
+        var v = sm[j * tw + i];
+        mass += v; cx += v * i; cy += v * j;
+      }
+    }
+    if(mass <= 0) return null;
+    cx /= mass; cy /= mass;
+
+    var offX = Math.round(14 - cx), offY = Math.round(14 - cy);
+    var out = new Float32Array(784);
+    for(var jj = 0; jj < th; jj++){
+      for(var ii = 0; ii < tw; ii++){
+        var X = ii + offX, Y = jj + offY;
+        if(X >= 0 && X < 28 && Y >= 0 && Y < 28) out[Y * 28 + X] = sm[jj * tw + ii];
+      }
+    }
+    return out;
+  }
+
+  // ---------- 手写卷积前向 ----------
+
+  // x: (H,W,Cin) 扁平、通道在最后；W: [kh][kw][ci][co]
+  function conv3x3(x, H, W, Cin, Cout, Wt, bt){
+    var oh = H - 2, ow = W - 2;
+    var out = new Float32Array(oh * ow * Cout);
+    for(var y = 0; y < oh; y++){
+      for(var xx = 0; xx < ow; xx++){
+        var base = (y * ow + xx) * Cout;
+        for(var co2 = 0; co2 < Cout; co2++) out[base + co2] = bt[co2];
+        for(var kh = 0; kh < 3; kh++){
+          for(var kw = 0; kw < 3; kw++){
+            var krow = Wt[kh][kw];
+            for(var ci = 0; ci < Cin; ci++){
+              var v = x[((y + kh) * W + (xx + kw)) * Cin + ci];
+              if(v === 0) continue;
+              var wrow = krow[ci];
+              for(var co3 = 0; co3 < Cout; co3++) out[base + co3] += v * wrow[co3];
+            }
+          }
+        }
+        for(var r = 0; r < Cout; r++) if(out[base + r] < 0) out[base + r] = 0;
+      }
+    }
+    return out;
+  }
+
+  function maxpool2(x, H, W, C){
+    var h = H >> 1, w = W >> 1;
+    var out = new Float32Array(h * w * C);
+    for(var y = 0; y < h; y++){
+      for(var xx = 0; xx < w; xx++){
+        for(var c = 0; c < C; c++){
+          var m = -Infinity;
+          for(var dy = 0; dy < 2; dy++)
+            for(var dx = 0; dx < 2; dx++){
+              var v = x[((y * 2 + dy) * W + (xx * 2 + dx)) * C + c];
+              if(v > m) m = v;
+            }
+          out[(y * w + xx) * C + c] = m;
+        }
+      }
+    }
+    return out;
+  }
+
+  var lastMaps = null;
+
+  function infer(x){
+    var f1 = conv3x3(x, 28, 28, 1, 8, M.W1, M.b1);   // (26,26,8)
+    var p1 = maxpool2(f1, 26, 26, 8);                 // (13,13,8)
+    var f2 = conv3x3(p1, 13, 13, 8, 16, M.W2, M.b2);  // (11,11,16)
+    var p2 = maxpool2(f2, 11, 11, 16);                // (5,5,16) 内部已裁成 10x10
+
+    lastMaps = {H:26, W:26, C:8, data:f1};
+
+    var hid = new Float32Array(64);
+    var F = 400;
+    for(var j = 0; j < 64; j++){
+      var s = M.bf[j];
+      for(var i = 0; i < F; i++){
+        var v = p2[i];
+        if(v !== 0) s += v * M.Wf[i][j];
+      }
+      hid[j] = s > 0 ? s : 0;
+    }
+
+    var logits = new Float32Array(10), mx = -Infinity;
+    for(var k = 0; k < 10; k++){
+      var t = M.bo[k];
+      for(var j2 = 0; j2 < 64; j2++) t += hid[j2] * M.Wo[j2][k];
+      logits[k] = t;
+      if(t > mx) mx = t;
+    }
+    var sum = 0, probs = new Float32Array(10);
+    for(var k2 = 0; k2 < 10; k2++){ probs[k2] = Math.exp(logits[k2] - mx); sum += probs[k2]; }
+    for(var k3 = 0; k3 < 10; k3++) probs[k3] /= sum;
+    return probs;
+  }
+
+  // ---------- 界面 ----------
+
+  var barsEl = document.getElementById('bars');
+  var rows = [];
+  for(var d = 0; d < 10; d++){
+    var row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = '<span>' + d + '</span>' +
+      '<span class="bar-track"><span class="bar-fill"></span></span>' +
+      '<span class="bar-val">0%</span>';
+    barsEl.appendChild(row);
+    rows.push({el:row, fill:row.querySelector('.bar-fill'), val:row.querySelector('.bar-val')});
+  }
+
+  var fmapEl = document.getElementById('fmaps');
+  var fmapCanvases = [];
+  for(var f = 0; f < 8; f++){
+    var c = document.createElement('canvas');
+    c.width = 26; c.height = 26;
+    fmapEl.appendChild(c);
+    fmapCanvases.push(c.getContext('2d'));
+  }
+
+  function drawPreview(arr){
+    var img = pctx.createImageData(28, 28);
+    for(var i = 0; i < 784; i++){
+      var v = Math.max(0, Math.min(255, Math.round(arr[i])));
+      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    pctx.putImageData(img, 0, 0);
+  }
+
+  function drawMaps(m){
+    if(!m) return;
+    for(var c = 0; c < m.C; c++){
+      var g = fmapCanvases[c];
+      var img = g.createImageData(m.W, m.H);
+      var mx = 0;
+      for(var i = 0; i < m.W * m.H; i++) if(m.data[i * m.C + c] > mx) mx = m.data[i * m.C + c];
+      mx = mx || 1;
+      for(var i2 = 0; i2 < m.W * m.H; i2++){
+        var v = Math.round(255 * Math.min(1, m.data[i2 * m.C + c] / mx));
+        img.data[i2 * 4] = v; img.data[i2 * 4 + 1] = v; img.data[i2 * 4 + 2] = v; img.data[i2 * 4 + 3] = 255;
+      }
+      g.putImageData(img, 0, 0);
+    }
+  }
+
+  document.getElementById('meta').textContent =
+    '模型 ' + (JSON.stringify(M).length / 1024).toFixed(0) + ' KB · 27,562 个参数（MLP 是 200,704）';
+
+  function update(){
+    var ink = readInk();
+    var arr = preprocess(ink);
+    var digitEl = document.getElementById('digit');
+    var confEl = document.getElementById('conf');
+
+    if(!arr){
+      digitEl.textContent = '–';
+      confEl.textContent = '还没有笔迹';
+      rows.forEach(function(r){ r.fill.style.width = '0%'; r.val.textContent = '0%'; r.el.classList.remove('top'); });
+      pctx.fillStyle = '#000'; pctx.fillRect(0, 0, 28, 28);
+      return;
+    }
+
+    drawPreview(arr);
+
+    var x = new Float32Array(784);
+    for(var i = 0; i < 784; i++) x[i] = arr[i] / 255;
+
+    var probs = infer(x);
+    var best = 0;
+    for(var k = 1; k < 10; k++) if(probs[k] > probs[best]) best = k;
+
+    digitEl.textContent = best;
+    confEl.textContent = '置信度 ' + (probs[best] * 100).toFixed(1) + '%';
+
+    for(var dd = 0; dd < 10; dd++){
+      var p = probs[dd];
+      rows[dd].fill.style.width = (p * 100).toFixed(1) + '%';
+      rows[dd].val.textContent = (p * 100).toFixed(0) + '%';
+      rows[dd].el.classList.toggle('top', dd === best && p > 0.05);
+    }
+    drawMaps(lastMaps);
+  }
+
+  clearBoard();
+})();
+</script>
+</body>
+</html>

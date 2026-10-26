@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>接口层负责制 · mnist_mlp.py 实现流程拆解</title>
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#fff; --ink:#1a1c1e; --muted:#6b7177; --line:#e2e5e8;
+    --blue:#185FA5; --blue-s:#E6F1FB; --blue-d:#0C447C;
+    --teal:#0F6E56; --teal-s:#E1F5EE;
+    --amber:#854F0B; --amber-s:#FAEEDA;
+    --red:#A32D2D; --red-s:#FCEBEB;
+    --gray:#5F5E5A; --gray-s:#F1EFE8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.78;
+    font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  #bar{position:fixed;top:0;left:0;height:2px;background:var(--blue);width:0;z-index:99;transition:width .1s linear}
+
+  nav{position:sticky;top:0;z-index:50;background:rgba(244,245,247,.92);
+      backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  nav .inner{max-width:1000px;margin:0 auto;padding:9px 24px;display:flex;gap:4px;
+      overflow-x:auto;scrollbar-width:none}
+  nav .inner::-webkit-scrollbar{display:none}
+  nav a{font-size:12.5px;color:var(--muted);text-decoration:none;padding:4px 9px;
+      border-radius:6px;white-space:nowrap}
+  nav a:hover{background:#e9ebee;color:var(--ink)}
+
+  .wrap{max-width:1000px;margin:0 auto;padding:40px 24px 96px}
+
+  header.top{margin-bottom:44px}
+  .eyebrow{font-family:var(--mono);font-size:12px;color:var(--blue);letter-spacing:.06em;margin-bottom:14px}
+  h1{font-size:30px;line-height:1.35;font-weight:600;margin:0 0 14px;letter-spacing:-.01em}
+  .lede{font-size:15.5px;color:#4a5055;margin:0;max-width:74ch}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+  .meta span{font-family:var(--mono);font-size:11.5px;color:var(--muted);
+      background:var(--card);border:1px solid var(--line);border-radius:6px;padding:3px 9px}
+
+  section{margin-bottom:56px;scroll-margin-top:64px}
+  .sh{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+  .sh .num{font-family:var(--mono);font-size:12px;color:var(--blue);font-weight:500}
+  h2{font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em;flex:1}
+  .tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .t-own{background:var(--blue-s);color:var(--blue-d);border:1px solid #b5d4f4}
+  .t-box{background:var(--gray-s);color:var(--gray);border:1px solid #d3d1c7}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 20px;padding-left:0}
+
+  h3{font-size:15.5px;font-weight:600;margin:30px 0 10px}
+  p{margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+  .card + .card{margin-top:12px}
+
+  code{font-family:var(--mono);font-size:12.8px;background:#eef0f2;
+       padding:1.5px 5px;border-radius:4px;color:#2c3238}
+  .chip{display:inline-block;font-family:var(--mono);font-size:12px;background:var(--gray-s);
+        border:1px solid #dfe1e4;border-radius:5px;padding:0 6px;color:#40454a;white-space:nowrap}
+  .chip.b{background:var(--blue-s);border-color:#c9e0f7;color:var(--blue-d)}
+  .chip.t{background:var(--teal-s);border-color:#a9dfd0;color:var(--teal)}
+  .chip.a{background:var(--amber-s);border-color:#f0d3a5;color:var(--amber)}
+
+  pre{background:#fbfbfc;border:1px solid var(--line);border-radius:10px;
+      padding:14px 16px;overflow-x:auto;margin:0 0 14px;
+      font-family:var(--mono);font-size:12.6px;line-height:1.72;color:#2c3238}
+  pre .cm{color:#8b9199}
+  pre .hl{background:#FAEEDA;border-radius:3px;padding:0 2px}
+  pre .ln{color:#b9bec4;user-select:none;display:inline-block;width:26px}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:720px){.two{grid-template-columns:1fr}}
+
+  .note{border-radius:9px;padding:13px 16px;margin:14px 0;font-size:13.8px;line-height:1.7}
+  .note .lb{display:block;font-size:11.5px;font-weight:600;letter-spacing:.04em;
+      margin-bottom:4px;font-family:var(--mono)}
+  .n-axiom{background:var(--blue-s);border-left:3px solid var(--blue)}
+  .n-axiom .lb{color:var(--blue-d)}
+  .n-pit{background:var(--amber-s);border-left:3px solid #BA7517}
+  .n-pit .lb{color:var(--amber)}
+  .n-bad{background:var(--red-s);border-left:3px solid #E24B4A}
+  .n-bad .lb{color:var(--red)}
+  .n-ok{background:var(--teal-s);border-left:3px solid #1D9E75}
+  .n-ok .lb{color:var(--teal)}
+
+  .kv{display:grid;grid-template-columns:78px 1fr;gap:6px 14px;font-size:13.5px;margin:0 0 6px}
+  .kv dt{font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:3px}
+  .kv dd{margin:0}
+
+  .phase{margin-top:26px;padding-top:4px}
+  .phase-t{font-size:12px;font-family:var(--mono);font-weight:500;letter-spacing:.05em;
+      padding:3px 9px;border-radius:5px;display:inline-block;margin-bottom:14px}
+  ol.steps{list-style:none;margin:0;padding:0}
+  li.step{display:grid;grid-template-columns:26px 1fr;gap:14px;position:relative;padding-bottom:20px}
+  li.step:last-child{padding-bottom:0}
+  li.step::before{content:"";position:absolute;left:12px;top:24px;bottom:-4px;width:1px;background:var(--line)}
+  li.step:last-child::before{display:none}
+  .dot{width:25px;height:25px;border-radius:50%;background:var(--card);border:1px solid var(--line);
+      font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;align-items:center;
+      justify-content:center;position:relative;z-index:1;margin-top:1px}
+  .step-b{min-width:0}
+  .step-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:2px}
+  .step-h b{font-size:14.5px;font-weight:600}
+  .step-h .f{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .step-p{font-size:13.6px;color:#4a5055;margin:0}
+
+  table{width:100%;border-collapse:collapse;font-size:13.2px;margin:6px 0 0;
+        background:var(--card);border-radius:10px;overflow:hidden}
+  th{text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.04em;color:var(--muted);
+     font-family:var(--mono);background:#fafbfb;padding:9px 12px;border-bottom:1px solid var(--line)}
+  td{padding:9px 12px;border-bottom:1px solid #eef0f2;vertical-align:top;line-height:1.6}
+  tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:var(--mono);font-size:12px;white-space:nowrap}
+
+  .lab{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+  .lab-title{font-size:12px;font-family:var(--mono);color:var(--blue);letter-spacing:.05em;margin-bottom:16px}
+  .ctrl{margin-bottom:16px}
+  .ctrl label{display:flex;justify-content:space-between;font-size:13px;color:#4a5055;margin-bottom:7px}
+  .ctrl output{font-family:var(--mono);font-size:13px;color:var(--blue);font-weight:500}
+  input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:2px;
+      background:#e4e6e9;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+      border-radius:50%;background:var(--blue);cursor:pointer;border:2px solid #fff;
+      box-shadow:0 0 0 1px var(--blue)}
+  .grid-out{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:9px;margin-top:4px}
+  .cell{background:#fafbfb;border:1px solid #eceef0;border-radius:8px;padding:9px 11px}
+  .cell .k{font-size:10.5px;font-family:var(--mono);color:var(--muted);letter-spacing:.03em;margin-bottom:2px}
+  .cell .v{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--ink);
+      font-variant-numeric:tabular-nums}
+  .cell .v small{font-size:11px;font-weight:400;color:var(--muted)}
+
+  .end{border-top:1px solid var(--line);padding-top:24px;margin-top:56px;
+       font-size:13px;color:var(--muted)}
+  .end b{color:var(--ink);font-weight:500}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+
+<nav><div class="inner">
+  <a href="#s1">核心理念</a>
+  <a href="#s2">全景</a>
+  <a href="#s3">数据准备</a>
+  <a href="#s4">形状与参数</a>
+  <a href="#s5">前向与损失</a>
+  <a href="#s6">反向与更新</a>
+  <a href="#s7">三个循环变量</a>
+  <a href="#s8">评估</a>
+  <a href="#s9">导出与前端</a>
+  <a href="#s10">契约总表</a>
+  <a href="#s11">诊断手册</a>
+  <a href="#s12">旋钮</a>
+</div></nav>
+
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">04-手写数字识别 / mnist_mlp.py</div>
+  <h1>接口层负责制</h1>
+  <p class="lede">
+    从磁盘上四个 gzip 文件，到网页画板上写下的一笔被认成一个数字 —— 中间发生了什么。
+    这份文档不解释反向传播怎么推导，只讲清每一环「进去什么、出来什么、坏了会怎样」。
+    你可以不懂梯度，但必须看得懂形状。
+  </p>
+  <div class="meta">
+    <span>784 → 256 → 10 全连接</span>
+    <span>tanh + softmax</span>
+    <span>Adam · lr 1e-3 · batch 128 · 10 epoch</span>
+    <span>203,530 参数 / 1.9 MB</span>
+  </div>
+</header>
+
+<!-- ============ 1 ============ -->
+<section id="s1">
+  <div class="sh"><span class="num">01</span><h2>核心理念：只管接口，不管内部</h2></div>
+  <p class="sub">把整个训练过程想象成一排黑色的盒子，你只负责把管子接对。</p>
+
+  <p>
+    深度学习的实践工作，可以被切成两层。<b>契约层</b>是盒子之间的接口：张量形状对不对得上、
+    数值范围是不是同一个量纲、标签和输出是不是同一套语义、跑完了怎么判断它到底行不行。
+    <b>黑盒层</b>是盒子内部：梯度怎么算出来的、Adam 那三个公式在干什么、softmax 的雅可比矩阵长什么样。
+  </p>
+
+  <div class="two">
+    <div class="card" style="border-color:#b5d4f4">
+      <div class="sh" style="margin-bottom:10px"><h3 style="margin:0;font-size:14px;color:var(--blue-d)">契约层 · 你负责</h3></div>
+      <p style="font-size:13.4px;margin:0;color:#3c4348">
+        每个函数的输入输出形状、dtype、取值范围；数据预处理与训练时是否一致；
+        用什么指标判断成败；出问题时先怀疑哪一环。
+      </p>
+      <div class="note n-bad" style="margin-bottom:0">
+        <span class="lb">为什么不能放手</span>
+        这一层出错时<b>不会抛异常</b>。代码照常跑完，loss 照常下降，准确率停在 10%（等于瞎猜）。
+      </div>
+    </div>
+    <div class="card" style="border-color:#d3d1c7">
+      <div class="sh" style="margin-bottom:10px"><h3 style="margin:0;font-size:14px;color:var(--gray)">黑盒层 · 交给工具</h3></div>
+      <p style="font-size:13.4px;margin:0;color:#3c4348">
+        反向传播的链式法则推导、每个算子的梯度表达式、优化器的数学性质、
+        学习率调度曲线的设计。
+      </p>
+      <div class="note n-ok" style="margin-bottom:0">
+        <span class="lb">为什么可以放手</span>
+        这一层出错<b>立刻报错</b>，而且第 50 行一行 <code>autograd.grad</code> 就把整条反向通路包掉了。
+      </div>
+    </div>
+  </div>
+
+  <div class="note n-axiom">
+    <span class="lb">全局原则</span>
+    <b>黑盒不等于不可知，等于用实验去探测。</b>你不必知道 Adam 的数学，但要知道
+    「lr 从 1e-3 调到 1e-1 会震荡」「去掉 tanh 两层会塌成线性」。
+    前者是可查的公式，后者是可做的实验 —— 后者才是你该积累的东西。
+  </div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="s2">
+  <div class="sh"><span class="num">02</span><h2>全景：一次 <code>python mnist_mlp.py</code> 发生了什么</h2></div>
+  <p class="sub">十一个步骤，四个阶段。形状的变化集中在前三个，之后都在 (batch, dim) 这个格式里打转。</p>
+
+  <div class="phase">
+    <span class="phase-t" style="background:var(--blue-s);color:var(--blue-d)">阶段 A · 准备数据</span>
+    <ol class="steps">
+      <li class="step"><div class="dot">1</div><div class="step-b">
+        <div class="step-h"><b>读盘</b><span class="f">mnist_loader.load_mnist()</span></div>
+        <p class="step-p">解 gzip、校验魔数、按大端序拆文件头。出来是
+          <span class="chip">(60000, 28, 28) uint8</span> 和 <span class="chip">(60000,) uint8</span>。</p>
+      </div></li>
+      <li class="step"><div class="dot">2</div><div class="step-b">
+        <div class="step-h"><b>展平 + 归一化</b><span class="f">L163–164</span></div>
+        <p class="step-p"><code>reshape(n, -1) / 255.0</code> →
+          <span class="chip b">(60000, 784) float</span>，值域压到 0~1。这一步决定训练能不能收敛。</p>
+      </div></li>
+      <li class="step"><div class="dot">3</div><div class="step-b">
+        <div class="step-h"><b>标签独热</b><span class="f">L165–166 / one_hot()</span></div>
+        <p class="step-p">整数标签 → <span class="chip b">(60000, 10) float</span>。目的是让它能和
+          <code>(60000, 10)</code> 的输出直接相减 / 相乘。</p>
+      </div></li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <span class="phase-t" style="background:var(--teal-s);color:var(--teal)">阶段 B · 立起参数</span>
+    <ol class="steps">
+      <li class="step"><div class="dot">4</div><div class="step-b">
+        <div class="step-h"><b>初始化四个张量</b><span class="f">train_network() L34–38</span></div>
+        <p class="step-p">只造四个东西：W1、b1、W2、b2。它们的形状完全由
+          <code>X.shape[1]</code>、<code>n_hidden</code>、<code>Y.shape[1]</code> 推出来，没有一个硬编码的 784 或 10。</p>
+      </div></li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <span class="phase-t" style="background:var(--amber-s);color:var(--amber)">阶段 C · 训练循环（这是唯一会重复的部分）</span>
+    <ol class="steps">
+      <li class="step"><div class="dot">5</div><div class="step-b">
+        <div class="step-h"><b>前向</b><span class="f">forward() L40–41</span></div>
+        <p class="step-p"><span class="chip">(b,784)</span> → <span class="chip t">(b,h)</span> →
+          <span class="chip a">(b,10) logits</span>。三次矩阵乘/加，一次激活。</p>
+      </div></li>
+      <li class="step"><div class="dot">6</div><div class="step-b">
+        <div class="step-h"><b>算损失</b><span class="f">loss_fn() L43–48</span></div>
+        <p class="step-p">logits 过 softmax 变概率，再和独热标签算交叉熵。输出是一个<b>标量</b>。</p>
+      </div></li>
+      <li class="step"><div class="dot">7</div><div class="step-b">
+        <div class="step-h"><b>反向</b><span class="f">L50</span></div>
+        <p class="step-p">标量 → 四个和参数同形状的梯度。整条链式法则由 autograd 完成，你只写一行。</p>
+      </div></li>
+      <li class="step"><div class="dot">8</div><div class="step-b">
+        <div class="step-h"><b>更新</b><span class="f">L69–78</span></div>
+        <p class="step-p">Adam 用一阶矩、二阶矩和偏差修正算出每步走多远。参数原地更新。</p>
+      </div></li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <span class="phase-t" style="background:var(--gray-s);color:var(--gray)">阶段 D · 交付</span>
+    <ol class="steps">
+      <li class="step"><div class="dot">9</div><div class="step-b">
+        <div class="step-h"><b>评估</b><span class="f">L82 / main() L178–189</span></div>
+        <p class="step-p">每轮在<b>训练集</b>上算一次准确率；训练结束后在<b>测试集</b>上算一次 —— 这两者永远不能混。</p>
+      </div></li>
+      <li class="step"><div class="dot">10</div><div class="step-b">
+        <div class="step-h"><b>导出</b><span class="f">export_model() L108–141</span></div>
+        <p class="step-p">四个张量转成嵌套列表写进 <code>model.json</code>，同时复制一份到
+          <code>web/model.js</code>（内容一样，只是套了 <code>window.MNIST_MODEL =</code>）。</p>
+      </div></li>
+      <li class="step"><div class="dot">11</div><div class="step-b">
+        <div class="step-h"><b>浏览器里重跑前向</b><span class="f">web/index.html infer()</span></div>
+        <p class="step-p">用纯 JS 手写一遍 <code>forward</code>。同一个公式，换一种语言，形状契约不能变。</p>
+      </div></li>
+    </ol>
+  </div>
+
+  <div class="note n-axiom">
+    <span class="lb">看这张图的方式</span>
+    只有第 5–8 步会重复执行（每轮几百次）。其余步骤在整个运行中只发生一次。
+    所以调参调不动的时候，问题几乎总在<b>第 2、3 步</b>（数据契约）或<b>第 1 步之前</b>（数据本身），而不在循环里。
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="s3">
+  <div class="sh"><span class="num">03</span><h2>数据准备：三行代码，三个坑</h2><span class="tag t-own">你负责</span></div>
+  <p class="sub">main() 里第 161–166 行。看起来最没技术含量，实际上是整个流程里最容易静默出错的地方。</p>
+
+  <div class="card">
+    <dl class="kv">
+      <dt>输入</dt><dd><span class="chip">X_train (60000,28,28) uint8</span> <span class="chip">y_train (60000,) uint8</span></dd>
+      <dt>输出</dt><dd><span class="chip b">X (60000,784) float64</span> <span class="chip b">Y (60000,10) float64</span></dd>
+      <dt>语义</dt><dd>每行一张图；每行一个 one-hot 分布</dd>
+    </dl>
+  </div>
+
+<pre><span class="ln">163</span>X_train = X_train.reshape(X_train.shape[0], -1) / 255.0
+<span class="ln">164</span>X_test  = X_test.reshape(X_test.shape[0], -1) / 255.0
+<span class="ln">165</span>Y_train = one_hot(y_train, 10)
+<span class="ln">166</span>Y_test  = one_hot(y_test, 10)</pre>
+
+  <div class="note n-pit">
+    <span class="lb">坑一 · 除以 255 不是可选优化</span>
+    原始像素是 0~255。如果直接喂进去，W1 的乘积会放大 255 倍，梯度跟着放大，
+    第一步就可能把参数推到饱和区。现象是：<b>loss 卡在 2.3 附近不动，或者直接 NaN</b>。
+    顺带注意：<code>mnist_loader.load_mnist()</code> 其实自带 <code>normalize=True</code> 参数，
+    但 main() 没用它，而是自己在这儿除 —— 两种写法都行，混着写就容易除两次。这是典型的契约泄漏。
+  </div>
+
+  <div class="note n-pit">
+    <span class="lb">坑二 · 训练集和测试集必须用同一套预处理</span>
+    代码里第 163 和第 164 行是两条独立的语句。任何只改了其中一条的改动（比如调试时给训练集加了个增强），
+    都会让测试集准确率失去意义 —— 而且它不会报错，只会莫名其妙地偏低。
+  </div>
+
+  <div class="note n-pit">
+    <span class="lb">坑三 · one_hot 只接受整数标签</span>
+    <code>Y[np.arange(n), y] = 1.0</code> 用标签当列索引。如果 <code>y</code> 是浮点数或者已经被转过一次 one-hot，
+    这一步会抛出 <code>IndexError</code> 或静默做错。这是少数<b>会</b>报错的契约问题，要珍惜它。
+  </div>
+
+  <p style="margin-top:16px">
+    顺带说清 <code>X</code> 的第一维到底是什么：它既是「整个训练集 60000 张」，也是「一批 128 张」。
+    同一个变量名、同一个第二个维度 784，第一维随上下文变化。
+    这正是下一节要把形状单独拎出来讲的原因。
+  </p>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="s4">
+  <div class="sh"><span class="num">04</span><h2>形状与参数：全部形状都由三个数决定</h2><span class="tag t-own">你负责</span></div>
+  <p class="sub">这一段就是你在写代码之前脑子里已经在跑的东西。它完全正确，而且只需要三个数。</p>
+
+  <p>
+    设 <b>b</b> = 一批的图片数（batch size），<b>d</b> = 每张图的像素数（784），
+    <b>h</b> = 隐藏层神经元数，<b>k</b> = 类别数（10）。那么整个网络的每个形状都不需要记忆，代公式就有：
+  </p>
+
+  <table>
+    <thead><tr><th class="mono">张量</th><th class="mono">形状</th><th>它是什么</th><th class="mono">代码位置</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">X</td><td class="mono">(b, d)</td><td>b 张图，每张展平成 d 个数</td><td class="mono">L163</td></tr>
+      <tr><td class="mono">W1</td><td class="mono">(d, h)</td><td>把 d 维输入投影到 h 维</td><td class="mono">L35</td></tr>
+      <tr><td class="mono">b1</td><td class="mono">(1, h)</td><td>偏置，靠广播加到每一行</td><td class="mono">L36</td></tr>
+      <tr><td class="mono">H</td><td class="mono">(b, h)</td><td>tanh(XW1 + b1)，隐藏层激活值</td><td class="mono">L41</td></tr>
+      <tr><td class="mono">W2</td><td class="mono">(h, k)</td><td>把 h 维特征投到 k 个分数</td><td class="mono">L37</td></tr>
+      <tr><td class="mono">b2</td><td class="mono">(1, k)</td><td>输出层偏置</td><td class="mono">L38</td></tr>
+      <tr><td class="mono">Y</td><td class="mono">(b, k)</td><td>logits：还没归一化的分数</td><td class="mono">L41</td></tr>
+      <tr><td class="mono">P̂</td><td class="mono">(b, k)</td><td>softmax 之后的概率，每行和为 1</td><td class="mono">L46–47</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note n-axiom">
+    <span class="lb">为什么 b1 可以是 (1,h) 而不是 (b,h)</span>
+    因为 NumPy 的广播规则：<code>(b,h) + (1,h)</code> 会把第 0 维复制 b 份，不额外占内存。
+    写 <code>(h,)</code> 效果一样。但如果误写成 <code>(h,1)</code>，它会把第 1 维复制 h 份 —— 
+    第一次乘加就会报维度不匹配，反而是好事；真正危险的是那些<b>碰巧能广播成功</b>的形状。
+  </div>
+
+  <h3>把旋钮拧一下，看形状怎么跟着变</h3>
+  <p style="font-size:13.6px;color:#4a5055">
+    下面这个面板对应代码里的两个参数：<code>n_hidden</code>（L171 传的 256）和
+    <code>batch_size</code>（L172 传的 128）。注意隐藏层从 32 加到 256，<b>所有公式一个字都不用改</b>，
+    只有数字变。
+  </p>
+
+  <div class="lab">
+    <div class="lab-title">形状 / 参数量 实时推算</div>
+    <div class="ctrl">
+      <label><span>隐藏层神经元 h &nbsp;<span class="chip">n_hidden</span></span><output id="oh">256</output></label>
+      <input type="range" id="rh" min="8" max="512" step="8" value="256">
+    </div>
+    <div class="ctrl" style="margin-bottom:18px">
+      <label><span>一批多少张 &nbsp;<span class="chip">batch_size</span></span><output id="ob">128</output></label>
+      <input type="range" id="rb" min="16" max="512" step="16" value="128">
+    </div>
+    <div class="grid-out">
+      <div class="cell"><div class="k">X</div><div class="v" id="vx">–</div></div>
+      <div class="cell"><div class="k">W1 / b1</div><div class="v" id="vw1">–</div></div>
+      <div class="cell"><div class="k">H</div><div class="v" id="vh">–</div></div>
+      <div class="cell"><div class="k">W2 / b2</div><div class="v" id="vw2">–</div></div>
+      <div class="cell"><div class="k">Y</div><div class="v" id="vy">–</div></div>
+      <div class="cell"><div class="k">参数量</div><div class="v" id="vp">–</div></div>
+      <div class="cell"><div class="k">导出体积</div><div class="v" id="vj">–</div></div>
+      <div class="cell"><div class="k">每轮步数</div><div class="v" id="vs">–</div></div>
+    </div>
+  </div>
+
+  <p style="margin-top:14px;font-size:13.6px">
+    对照一下真实导出物：<code>model.json</code> 是 <b>1.9 MB</b>，<code>arch</code> 字段写着
+    <code>[784, 256, 10]</code>，参数量 203,530 —— 和面板里 h=256 那一列完全一致。
+    而你最初设计时想的 32 个神经元，参数量只有 25,450，是它的八分之一。
+  </p>
+
+  <div class="note n-pit">
+    <span class="lb">坑 · 第 10 行的随机种子其实是摆设</span>
+    <code>np.random.seed(42)</code> 设的是 NumPy 的全局随机状态，
+    但第 31 行用的是 <code>np.random.default_rng(seed)</code> —— 一个和全局状态无关的独立 Generator。
+    真正决定结果可复现的是 <code>seed=42</code> 这个参数（L172 传入），不是第 10 行。
+    想改种子，得改 main() 里那个。
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="s5">
+  <div class="sh"><span class="num">05</span><h2>前向与损失：两次矩阵乘，一个标量</h2><span class="tag t-own">前向你负责 · 损失细节可黑盒</span></div>
+  <p class="sub">整个模型本体只有两行代码。所有复杂度都在「这两行怎么被循环调用」上。</p>
+
+<pre><span class="ln">40</span><span class="cm">def forward(W1, b1, W2, b2, xb):</span>
+<span class="ln">41</span>    <span class="hl">return np.tanh(xb @ W1 + b1) @ W2 + b2</span></pre>
+
+  <p>
+    这一行做了四件事，顺序不能换：投影（<code>@W1</code>）→ 平移（<code>+b1</code>）→
+    压非线性（<code>tanh</code>）→ 再投到 10 个分数（<code>@W2 + b2</code>）。
+    输出<b>没有</b> softmax —— 这是刻意的。softmax 被挪进了损失函数里，因为
+    「softmax + 交叉熵」合起来算梯度更稳，autograd 处理起来也更省事。
+  </p>
+
+  <div class="note n-pit">
+    <span class="lb">坑 · tanh 是这个网络里唯一不能删的东西</span>
+    如果去掉 <code>tanh</code>，网络变成 <code>(XW1+b1)W2+b2 = X(W1W2) + (b1W2+b2)</code> —— 
+    两个矩阵乘可以合并成一个 (784,10) 的矩阵。<b>两层网络塌回单层线性分类器</b>，
+    表达能力退回 92% 左右（线性模型在 MNIST 上的天花板）。
+    形状不会报错，代码不会报错，只有准确率上不去。这是本文件里最隐蔽的一个坑。
+  </div>
+
+  <h3>损失函数：分类用交叉熵，别用 MSE</h3>
+
+<pre><span class="ln">43</span><span class="cm">def loss_fn(W1, b1, W2, b2, xb, yb):</span>
+<span class="ln">44</span>    z = forward(W1, b1, W2, b2, xb)
+<span class="ln">45</span>    <span class="cm">if loss == "ce":</span>
+<span class="ln">46</span>        p = softmax(z)
+<span class="ln">47</span>        return -np.mean(np.sum(yb * np.log(p + 1e-12), axis=1))
+<span class="ln">48</span>    return np.mean((z - yb) ** 2)</pre>
+
+  <dl class="kv" style="margin-top:6px">
+    <dt>输入</dt><dd><span class="chip">xb (b,784)</span> <span class="chip">yb (b,10)</span></dd>
+    <dt>输出</dt><dd><span class="chip a">标量</span> —— 一个 Python float，不是一个张量</dd>
+  </dl>
+
+  <p style="margin-top:12px">
+    <b>为什么是「标量」这件事很重要：</b>因为第 50 行的 <code>grad()</code> 只能对<b>标量输出</b>求梯度。
+    如果 loss_fn 返回形状 (b,10) 的东西，autograd 会直接报错。
+    这个「标量」就是整个反向传播的起点 —— 你的接口契约在这里收束成一个点，然后再散开成四个梯度。
+  </p>
+
+  <p>
+    第 47 行里三个细节都值得知道存在（不必知道推导）：
+    <code>sum(..., axis=1)</code> 是在 10 个类别上求和、
+    <code>mean</code> 是在 b 个样本上求平均（所以 loss 与 batch 大小无关，好比较）、
+    <code>+1e-12</code> 是防止 <code>log(0)</code> 变成 <code>-inf</code>。
+  </p>
+
+  <p>
+    第 48 行的 MSE 分支保留了，注释写着「能跑但很慢」。原因不在数学错误，
+    而在梯度形状：MSE 配 sigmoid 类的输出会梯度消失，收敛慢很多。分类任务默认就该是 CE。
+  </p>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="s6">
+  <div class="sh"><span class="num">06</span><h2>反向与更新：一行求导，十行 Adam</h2><span class="tag t-box">可黑盒</span></div>
+  <p class="sub">这一节的全部意义是让你知道「这里发生了什么」，而不是「这里怎么算」。</p>
+
+<pre><span class="ln">50</span>grads = grad(loss_fn, argnum=[0, 1, 2, 3])</pre>
+
+  <p>
+    一行。返回的是一个函数，调用 <code>grads(*P, xb, yb)</code> 就得到四个梯度，
+    形状和 <code>P</code> 里四个张量一一对应：<span class="chip">(784,h)</span>
+    <span class="chip">(1,h)</span> <span class="chip">(h,10)</span> <span class="chip">(1,10)</span>。
+    <b>梯度必须和参数同形状</b>，这是它唯一的接口约束，也是你唯一需要记住的事。
+  </p>
+
+<pre><span class="ln">69</span>for i in range(4):
+<span class="ln">70</span>    if optimizer == "adam":
+<span class="ln">71</span>        m[i] = 0.9 * m[i] + 0.1 * gs[i]
+<span class="ln">72</span>        v[i] = 0.999 * v[i] + 0.001 * gs[i] ** 2
+<span class="ln">73</span>        <span class="cm"># 偏差修正要用 step，不能用 epoch</span>
+<span class="ln">74</span>        bc1 = 1 - 0.9 ** step
+<span class="ln">75</span>        bc2 = 1 - 0.999 ** step
+<span class="ln">76</span>        P[i] = P[i] - lr * (m[i] / bc1) / (np.sqrt(v[i] / bc2) + 1e-8)
+<span class="ln">77</span>    else:
+<span class="ln">78</span>        P[i] = P[i] - lr * gs[i]</pre>
+
+  <p>
+    你能读懂的部分：<code>m</code> 是梯度的滑动平均（记住方向），<code>v</code> 是梯度平方的滑动平均
+    （记住幅度），最后两行就是「沿着平均方向、按平均幅度缩放」走一步。
+    <code>1e-8</code> 是防止除零。<b>这三个常数（0.9 / 0.999 / 1e-8）不要动</b>，
+    它们被验证了十年，动了没有收益。
+  </p>
+
+  <div class="note n-pit">
+    <span class="lb">坑 · 第 73 行那句注释是这道题唯一的考点</span>
+    <code>m</code> 和 <code>v</code> 都从 0 开始，前几步必然偏小。偏差修正就是把它们放大回正常尺度：
+    修正系数取决于<b>更新了多少次</b>，而不是<b>跑了多少轮</b>。
+    在 batch_size=128、60000 张图的情况下，1 个 epoch 里有 469 次更新 ——
+    如果用 <code>epoch</code> 当指数，修正会偏小几十倍，学习率等价于被吃掉一大截，前几轮几乎不学习。
+    这个错误<b>不报错、不崩溃</b>，只是收敛变慢，所以特别难查。
+  </div>
+
+  <p>
+    第 56 行 <code>step = 0</code> 和循环里的 <code>step += 1</code> 就是为了这件事单独维护的计数器。
+    这也是「接口层」的一个典型例子：<code>epoch</code> 和 <code>step</code> 在语义上是两个不同的量，
+    只是碰巧都由同一个循环驱动。把它们混用，就是语义层张冠李戴。
+  </p>
+
+  <div class="note n-ok">
+    <span class="lb">你可以完全跳过的东西</span>
+    tanh 的导数是 <code>1 - tanh²</code>、交叉熵对 logits 的梯度是 <code>P̂ - Y</code>、
+    Adam 的收敛性证明。这三样加起来是几十页教材，而在本文件里它们被 <code>grad()</code> 压缩成了一行。
+  </div>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="s7">
+  <div class="sh"><span class="num">07</span><h2>三个循环变量：epoch、step、batch 别搞混</h2><span class="tag t-own">你负责</span></div>
+  <p class="sub">训练循环（L58–86）是个双层嵌套。三层含义只有一个被写在变量名里。</p>
+
+  <table>
+    <thead><tr><th class="mono">概念</th><th>含义</th><th class="mono">本例数值</th><th>改大了会怎样</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">epoch</td><td>把整个训练集完整看一遍</td><td class="mono">10</td><td>更充分，也可能过拟合</td></tr>
+      <tr><td class="mono">batch_size</td><td>一次梯度更新用多少张图</td><td class="mono">128</td><td>更稳但更慢，显存/内存吃得更多</td></tr>
+      <tr><td class="mono">step</td><td>参数被实际更新了多少次</td><td class="mono">10 × 469 = 4,690</td><td>它不是你设的，是被算出来的</td></tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top:14px">
+    关系是 <code>step = epoch × ceil(N / batch_size)</code>。N=60000、batch=128 时每轮 469 步（最后一轮不满 128 也走一次）。
+    这就是为什么第 73 行不能用 epoch —— 两者差了 469 倍。
+  </p>
+
+<pre><span class="ln">59</span>idx = rng.permutation(n)          <span class="cm"># 每轮打乱</span>
+<span class="ln">62</span>for start in range(0, n, batch_size):
+<span class="ln">63</span>    b = idx[start:start + batch_size]
+<span class="ln">64</span>    xb, yb = X[b], Y[b]</pre>
+
+  <p>
+    第 64 行 <code>X[b]</code> 是花式索引，出来的形状是 <span class="chip">(b,784)</span>，
+    <code>Y[b]</code> 是 <span class="chip">(b,10)</span>。这两个第一维必须相等 —— 否则后面 loss 里的
+    <code>yb * np.log(p)</code> 会在第 0 维报错。这是形状契约在训练循环里唯一真正发挥作用的地方。
+  </p>
+
+  <div class="note n-axiom">
+    <span class="lb">一个小细节，体现作者懂契约</span>
+    第 80 行 <code>total_loss += loss_fn(...) * len(b)</code> —— 乘上 <code>len(b)</code> 再在第 86 行
+    除以 <code>n</code>，是为了让最后那个不满 128 的残批按实际样本数加权。
+    否则一个只有 32 张图的残批会和满批等权，把显示的 loss 拉偏。
+  </div>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="s8">
+  <div class="sh"><span class="num">08</span><h2>评估：训练集和测试集是两条永不相交的线</h2><span class="tag t-own">你负责</span></div>
+  <p class="sub">评估代码只有四行，但它决定了你前面所有工作有没有意义。</p>
+
+<pre><span class="ln">82</span>acc = np.mean(np.argmax(forward(*P, X), axis=1) == labels)   <span class="cm"># 每轮，训练集</span>
+
+<span class="ln">178</span>logits = predict(X_test, mlp)                                 <span class="cm"># 最后，测试集</span>
+<span class="ln">181</span>acc = np.mean(pred == y_test)</pre>
+
+  <ul style="margin:0 0 14px;padding-left:20px;font-size:14px;color:#3c4348">
+    <li style="margin-bottom:6px"><b>训练集准确率</b>（L82）在循环里每轮算一次，作用是看「学没学会」。它涨到 99% 是很正常的，不代表泛化好。</li>
+    <li style="margin-bottom:6px"><b>测试集准确率</b>（L181）只在最后算一次，作用是看「换个数据还认不认得」。这才是你该报给别人的数。</li>
+    <li><b>两者差距</b>才是信息：训练 99% / 测试 90% = 过拟合；两个都 92% = 欠拟合或者撞上线性天花板。</li>
+  </ul>
+
+  <p>
+    本工程实测：隐藏层 256、10 轮、batch 128，<b>训练集 99%+ / 测试集 97.61%</b>。
+    两个数只差 1.4 个百分点，说明还没过拟合，容量是够的；想再往上就得换卷积（CNN 能到 99%+），
+    单纯加宽这一层收益已经很小 —— 这是「加旋钮之前先想清楚瓶颈在哪」的典型例子。
+  </p>
+
+  <div class="note n-pit">
+    <span class="lb">坑 · 第 82 行其实很贵</span>
+    它每一轮都对全部 60000 张图做一次前向，而训练本身只用 batch 大小。10 轮就是 10 次全量前向，
+    在纯 NumPy 下是可观的开销。如果想快，可以把它改成只抽 2000 张，
+    或者干脆每 2 轮算一次 —— 这属于「可优化的接口」，不影响正确性。
+  </div>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="s9">
+  <div class="sh"><span class="num">09</span><h2>导出与前端：同一条公式，两种语言</h2><span class="tag t-own">契约层最严格的地方</span></div>
+  <p class="sub">export_model() 把 Python 的张量变成 JSON；infer() 把它变回计算。中间任何一个字不一致，网页就会静默失效。</p>
+
+  <h3>导出：三个决定</h3>
+<pre><span class="ln">121</span>"arch": [int(W1.shape[0]), int(W1.shape[1]), int(W2.shape[1])],
+<span class="ln">122</span>"activation": "tanh",
+<span class="ln">123</span>"output": "softmax",
+<span class="ln">124</span>"input": "28x28 grayscale, /255, white digit on black",
+<span class="ln">126</span>"b1": np.round(b1, decimals).tolist()[0],</pre>
+
+  <dl class="kv">
+    <dt>arch</dt><dd>从张量形状<b>反推</b>出来，不是硬写 <code>[784,256,10]</code>。改了 h 不用改这里 —— 这是好设计。</dd>
+    <dt>decimals</dt><dd>四舍五入到 6 位。注释里解释了原因：<code>0.12345678901234567</code> 会让文件大一倍多。真实结果 1.9 MB。</dd>
+    <dt>tolist()[0]</dt><dd><code>b1</code> 从 <code>(1,32)</code> 变成 JSON 里的一维 <code>[32]</code>。这个降维是<b>有损</b>的约定，靠 <code>load_model()</code> 里的 <code>np.array([raw["b1"]])</code> 手动还原。</dd>
+  </dl>
+
+  <h3>前端：手写的 forward</h3>
+<pre><span class="ln">225</span>var W1 = M.W1, b1 = M.b1, W2 = M.W2, b2 = M.b2;
+<span class="ln">227</span>for(var j = 0; j &lt; HID; j++){
+<span class="ln">228</span>  var s = b1[j];
+<span class="ln">229</span>  for(var i = 0; i &lt; IN; i++){
+<span class="ln">231</span>    if(xi &gt; 0) s += xi * W1[i][j];
+<span class="ln">233</span>  hid[j] = <span class="hl">Math.tanh</span>(s);</pre>
+
+  <p>
+    这段 JS 就是把 <code>np.tanh(xb @ W1 + b1) @ W2 + b2</code> 手工展开成三层循环，
+    因为浏览器里没有矩阵库。注意它读的是 <code>M.arch</code> 动态取 <code>HID</code>、
+    <code>IN</code>、<code>OUT</code> —— 所以改隐藏层大小，网页不用改。
+  </p>
+
+  <div class="note n-bad">
+    <span class="lb">假契约 · 这是全文最值得看的一处</span>
+    JSON 里老老实实写着 <code>"activation": "tanh"</code> 和 <code>"output": "softmax"</code>，
+    但 <code>index.html</code> 从头到尾<b>没有读过这两个字段</b>，它直接硬编码了 <code>Math.tanh</code>。
+    所以：你把 Python 里的 <code>tanh</code> 改成 <code>relu</code>、重新导出、打开网页 ——
+    网页会照常运行，照常显示数字，只是全部认错。<b>契约写在了数据里，消费方却没读，等于没写。</b>
+  </div>
+
+  <div class="note n-bad">
+    <span class="lb">更隐蔽的一处 · 预处理也是契约</span>
+    <code>"input": "28x28 grayscale, /255, white digit on black"</code> 只是一句人类可读的字符串，没有任何东西强制执行它。
+    而 <code>index.html</code> 里 <code>preprocess()</code> 手工复刻了 MNIST 官方的处理流程：
+    裁到墨迹边界 → 长边缩到 20×20 → 按<b>重心</b>居中到 28×28。
+    这三步只要有一处跟训练数据不一致，模型看到的分布就变了，识别率断崖下跌 —— 
+    而且它会「看起来在工作」，只是经常认错。这是手写板 Demo 最常见的失败原因。
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="s10">
+  <div class="sh"><span class="num">10</span><h2>契约总表：一张表看完所有接口</h2></div>
+  <p class="sub">把它当作这个工程的「说明书第一页」。改动任何一个函数前，先看这一行。</p>
+
+  <table>
+    <thead><tr><th class="mono">函数</th><th class="mono">输入</th><th class="mono">输出</th><th>契约要点</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">load_mnist()</td><td class="mono">—</td><td class="mono">(N,28,28) uint8 …</td><td>四个数组，未经归一化</td></tr>
+      <tr><td class="mono">one_hot()</td><td class="mono">(N,) int</td><td class="mono">(N,10) float</td><td>只接受整数标签</td></tr>
+      <tr><td class="mono">forward()</td><td class="mono">(b,784) + 4 参数</td><td class="mono">(b,10) logits</td><td>不做 softmax</td></tr>
+      <tr><td class="mono">softmax()</td><td class="mono">(b,10)</td><td class="mono">(b,10) 和为 1</td><td>先减行最大值防溢出</td></tr>
+      <tr><td class="mono">loss_fn()</td><td class="mono">(b,784),(b,10)</td><td class="mono">标量</td><td>必须标量，否则 grad 报错</td></tr>
+      <tr><td class="mono">grad()</td><td class="mono">函数 + argnum</td><td class="mono">4 个梯度</td><td>形状必须与参数一致</td></tr>
+      <tr><td class="mono">train_network()</td><td class="mono">X,Y,n_hidden,lr…</td><td class="mono">P 列表(4)</td><td>原地更新，返回引用</td></tr>
+      <tr><td class="mono">predict()</td><td class="mono">(N,784), P</td><td class="mono">(N,10) logits</td><td>与 forward 完全等价</td></tr>
+      <tr><td class="mono">export_model()</td><td class="mono">P</td><td class="mono">model.json</td><td>b1/b2 降为一维</td></tr>
+      <tr><td class="mono">load_model()</td><td class="mono">路径</td><td class="mono">P 列表(4)</td><td>手动把 b 还原成 (1,h)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="s11">
+  <div class="sh"><span class="num">11</span><h2>诊断手册：现象 → 先怀疑哪一环</h2></div>
+  <p class="sub">这一节是「接口层负责制」真正兑现价值的地方。不会推梯度没关系，会按表排查就够了。</p>
+
+  <table>
+    <thead><tr><th>现象</th><th>最可能的原因</th><th class="mono">看哪里</th></tr></thead>
+    <tbody>
+      <tr><td>准确率恰好 10%</td><td>标签和输出没对齐，或 softmax 轴错了</td><td class="mono">L54, L82</td></tr>
+      <tr><td>准确率停在 90% 上下</td><td>tanh 被删了，两层塌成线性</td><td class="mono">L41</td></tr>
+      <tr><td>loss 卡在 2.3 不动</td><td>输入没除 255，或者 lr 太小</td><td class="mono">L163, L171</td></tr>
+      <tr><td>loss 变 NaN</td><td>lr 太大，或 softmax 没减最大值溢出</td><td class="mono">L19, L76</td></tr>
+      <tr><td>前 3 轮几乎不学习</td><td>偏差修正用了 epoch 而不是 step</td><td class="mono">L74–75</td></tr>
+      <tr><td>训练 99% / 测试 90%</td><td>过拟合：h 太大或 epoch 太多</td><td class="mono">L171–172</td></tr>
+      <tr><td>网页上全是乱猜</td><td>前端预处理与训练分布不一致</td><td class="mono">index.html preprocess()</td></tr>
+      <tr><td>网页认得出但置信度很低</td><td>画板笔粗和 MNIST 差太多</td><td class="mono">index.html stroke()</td></tr>
+      <tr><td>换了激活函数，网页没反应</td><td>假契约：前端硬编码了 Math.tanh</td><td class="mono">L233</td></tr>
+      <tr><td>每轮训练特别慢</td><td>每轮都全量算训练准确率</td><td class="mono">L82</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note n-axiom" style="margin-top:16px">
+    <span class="lb">排错顺序建议</span>
+    先看 <b>loss 曲线</b>（有没有在降）→ 再看 <b>训练准确率</b>（学没学会）→ 最后看 <b>测试准确率</b>（泛化如何）。
+    如果 loss 不降，别调超参，去查数据；如果 loss 降了但准确率不涨，查标签对齐；
+    如果两个都高但测试低，才是模型容量的问题。
+  </div>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="s12">
+  <div class="sh"><span class="num">12</span><h2>四个旋钮：你实际会改的东西就这些</h2><span class="tag t-own">你负责</span></div>
+  <p class="sub">除了这四个数，其余代码可以原样不动地跑一辈子。</p>
+
+  <div class="two">
+    <div class="card">
+      <dl class="kv">
+        <dt>n_hidden</dt><dd>当前 <b>256</b>。容量。太小欠拟合（92%），太大过拟合 + 导出文件变胖。<b>32 / 64 / 128 / 256</b> 依次试，看测试集准确率的边际收益什么时候消失。</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <dl class="kv">
+        <dt>lr</dt><dd>当前 <b>1e-3</b>。步长。Adam 的标准起点就是 1e-3。<b>改成 1e-2</b> 通常开始震荡，<b>1e-1</b> 直接 NaN。</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <dl class="kv">
+        <dt>epochs</dt><dd>当前 <b>10</b>。看训练准确率什么时候饱和，饱和之后继续跑只是在拟合噪声。</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <dl class="kv">
+        <dt>batch_size</dt><dd>当前 <b>128</b>。折中项：小批噪声大但更新频繁，大批稳定但步数少。纯 NumPy 训练时它对速度影响最大。</dd>
+      </dl>
+    </div>
+  </div>
+
+  <h3>建议你做三个对照实验</h3>
+  <p style="font-size:14px">每个实验只改一个变量，跑完记下测试集准确率。这三个实验的信息量，比读十篇教程大。</p>
+  <ol style="margin:0;padding-left:20px;font-size:14px;color:#3c4348;line-height:1.9">
+    <li><b>删掉 tanh</b>（L41 改成 <code>return (xb @ W1 + b1) @ W2 + b2</code>）。预期掉到 92% 左右，形状不出错、不报错。</li>
+    <li><b>去掉 /255</b>（L163 把 <code>/ 255.0</code> 拿掉）。预期 loss 曲线明显异常，或者收敛极慢。</li>
+    <li><b>n_hidden 从 32 调到 256</b>，其他不动。观察参数量从 25,450 涨到 203,530，测试准确率涨了多少 —— 这个差值就是「容量买来的性能」的价格。</li>
+  </ol>
+
+  <div class="note n-ok" style="margin-top:20px">
+    <span class="lb">这套做法叫什么</span>
+    有人叫它「vibe coding」，其实更准确的名字是<b>接口层负责制</b>：
+    内部随便黑，但进去的形状、出来的语义、验收的标准，必须写死在你的脑子里。
+    你已经在做的事 —— 在写代码之前先推出 <code>(100,784) × (784,32) → (100,32) × (32,10) → (100,10)</code> ——
+    恰好是这件事里最难、也最不能被替代的部分。
+  </div>
+</section>
+
+<div class="end">
+  <b>文件对应关系</b>：<code>mnist_loader.py</code> 负责第 1 步，<code>mnist_mlp.py</code> 负责第 2–10 步，
+  <code>web/index.html</code> 负责第 11 步。三个文件之间只通过「形状 + 语义」相连，没有别的东西。
+</div>
+
+</div>
+
+<script>
+(function(){
+  var bar = document.getElementById('bar');
+  window.addEventListener('scroll', function(){
+    var h = document.documentElement;
+    var p = h.scrollTop / (h.scrollHeight - h.clientHeight || 1);
+    bar.style.width = (p * 100) + '%';
+  });
+
+  var rh = document.getElementById('rh'), rb = document.getElementById('rb');
+  var oh = document.getElementById('oh'), ob = document.getElementById('ob');
+  var N = 60000, D = 784, K = 10;
+
+  function fmt(n){ return n.toLocaleString('en-US'); }
+
+  function render(){
+    var h = +rh.value, b = +rb.value;
+    oh.textContent = h;
+    ob.textContent = b;
+
+    document.getElementById('vx').textContent = '(' + b + ', 784)';
+    document.getElementById('vw1').textContent = '(784, ' + h + ')';
+    document.getElementById('vh').textContent = '(' + b + ', ' + h + ')';
+    document.getElementById('vw2').textContent = '(' + h + ', 10)';
+    document.getElementById('vy').textContent = '(' + b + ', 10)';
+
+    var params = D * h + h + h * K + K;
+    document.getElementById('vp').innerHTML = fmt(params);
+
+    var kb = params * 9.35 / 1024;
+    var txt = kb > 1024 ? (kb / 1024).toFixed(2) + ' <small>MB</small>' : Math.round(kb) + ' <small>KB</small>';
+    document.getElementById('vj').innerHTML = txt;
+
+    document.getElementById('vs').innerHTML = Math.ceil(N / b) + ' <small>步/轮</small>';
+  }
+  rh.addEventListener('input', render);
+  rb.addEventListener('input', render);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,7 @@
   header{margin-bottom:24px}
   h1{font-size:19px;font-weight:600;margin:0 0 6px}
   header p{margin:0;font-size:13px;color:var(--muted);line-height:1.6}
+  header a{color:var(--muted);font-size:12px}
   main{display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start}
   @media (max-width:720px){main{grid-template-columns:1fr}}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
@@ -45,7 +46,7 @@
 <div class="wrap">
   <header>
     <h1>手写数字识别 · MLP 实时测试</h1>
-    <p>两层全连接网络（784 → <span id="hidden">?</span> → 10，tanh + softmax），权重由 <code>mnist_mlp.py</code> 导出。</p>
+    <p>两层全连接网络（784 → <span id="hidden">?</span> → 10，tanh + softmax），权重由 <code>mnist_mlp.py</code> 导出。<a href="cnn.html">换成 CNN 卷积版 →</a> · <a href="train.html">看 CNN 训练过程逐层可视化 →</a></p>
   </header>
 
   <main>
